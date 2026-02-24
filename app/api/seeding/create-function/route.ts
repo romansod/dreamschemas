@@ -658,22 +658,24 @@ const mapCSVToTableColumns = (csvRow, tableName) => {
         let bestCsvHeader = null;
         let isFromForeignKeyMapping = false;
         
-        // DYNAMIC FK HANDLING: No hardcoded tables - just mark FK columns for later resolution
-        if (targetColStr.endsWith('_id') && targetColStr !== 'id') {
-          // This is likely a foreign key column, but we'll handle it generically
-          console.log(\`🔗 DYNAMIC: Detected potential FK column: \${targetColStr}\`);
-          // We'll process this like any other column and let FK resolution handle it later
+        // Skip columns that reference auth.users (e.g. user_id) — we cannot synthesise
+        // a valid auth.users UUID, and inserting a random UUID would fail the FK constraint.
+        // The column is nullable, so omitting it lets Postgres default it to NULL.
+        const isAuthUsersFk = column.constraints?.some(
+          (c) => c.type === 'FOREIGN KEY' && (c.referencedTable === 'auth.users' || c.referencedTable === 'users')
+        ) || targetColStr === 'user_id';
+        if (isAuthUsersFk) {
+          console.log(\`⏭️  \${tableName}: Skipping \${targetColStr} (auth.users FK — will be NULL)\`);
+          return; // do NOT add to mappedFields — this column provides no actual data
         }
-        
-        // If no foreign key mapping found, use regular column matching
-        if (!bestCsvHeader) {
-          bestCsvHeader = findBestColumnMatch(targetColStr, csvHeaders, 'data');
-        }
-        
+
+        // Use regular column matching
+        bestCsvHeader = findBestColumnMatch(targetColStr, csvHeaders, 'data');
+
         if (bestCsvHeader && csvRow[bestCsvHeader] != null && csvRow[bestCsvHeader] !== '') {
           try {
             const convertedValue = convertValue(csvRow[bestCsvHeader], column);
-            
+
             if (convertedValue !== null && convertedValue !== undefined) {
               mapped[targetColStr] = convertedValue;
               mappedFields.push(\`"\${bestCsvHeader}" → \${targetColStr} (\${column.type})\`);

@@ -83,6 +83,8 @@ export function DataSeedingInterface({
   });
   const [serviceRoleKey, setServiceRoleKey] = useState('');
   const [showKey, setShowKey] = useState(false);
+  // Queue of files still waiting to be seeded (used for sequential per-file processing)
+  const pendingSeedFilesRef = React.useRef<FileUpload[]>([]);
 
   // Get OAuth instance (consistent with migration-deployer)
   const oauth = getSupabaseOAuth();
@@ -124,6 +126,12 @@ export function DataSeedingInterface({
     });
   }, [projectId]);
 
+  // Helper: determine which table a CSV file should seed, by matching filename to table names
+  const getTargetTable = useCallback((file: FileUpload): string | undefined => {
+    const baseName = file.filename.replace(/\.csv$/i, '').toLowerCase().replace(/[-\s]/g, '_');
+    return schema.tables.find(t => t.name.toLowerCase() === baseName)?.name;
+  }, [schema.tables]);
+
   // Streaming seeding hook
   const {
     isProcessing: isStreamingSeeding,
@@ -157,11 +165,56 @@ export function DataSeedingInterface({
             completedAt: new Date(),
           }))
         );
+      }
 
-        onSeedingComplete?.({
-          success: true,
-          statistics: result.data,
-        });
+      // Start next file in the queue (if any)
+      const remaining = pendingSeedFilesRef.current;
+      if (remaining.length > 0) {
+        const [nextFile, ...rest] = remaining;
+        pendingSeedFilesRef.current = rest;
+        const targetTable = getTargetTable(nextFile);
+        console.log(`▶️ Seeding next file: ${nextFile.filename} → table: ${targetTable ?? '(all tables)'}`);
+        const currentUserId = userEmail?.split("@")[0] || "data-seeding";
+        const nextJob: SeedingJob = {
+          id: `job_${Date.now()}`,
+          userId: currentUserId,
+          projectId,
+          fileId: nextFile.id,
+          fileUpload: nextFile,
+          schemaId: schema.id,
+          schema: { ...schema, projectId },
+          projectConfig: { projectId, serviceRoleKey },
+          targetTable,
+          status: "processing",
+          totalRows: nextFile.metadata.totalRows || 0,
+          processedRows: 0,
+          successfulRows: 0,
+          failedRows: 0,
+          errors: [],
+          warnings: [],
+          statistics: {
+            totalFiles: 1,
+            totalRows: nextFile.metadata.totalRows || 0,
+            processedRows: 0,
+            successfulRows: 0,
+            failedRows: 0,
+            skippedRows: 0,
+            duplicatesFound: 0,
+            duplicatesResolved: 0,
+            tablesProcessed: [],
+            averageRowsPerSecond: 0,
+            peakRowsPerSecond: 0,
+            memoryUsage: { peak: 0, average: 0, current: 0 },
+            processingTime: { total: 0, parsing: 0, validation: 0, insertion: 0 },
+          },
+          configuration,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        startStreamSeeding(nextJob);
+      } else {
+        // All files done
+        onSeedingComplete?.({ success: true, statistics: result.data });
       }
     },
     onError: (error) => {
@@ -383,7 +436,7 @@ export function DataSeedingInterface({
     setIsUploading(true);
 
     try {
-      // First, ensure the Edge Function exists in the user's project (CPU-optimized version)
+      // Deploy the Edge Function once for the whole schema
       const createFunctionResponse = await fetch(
         "/api/seeding/create-function",
         {
@@ -394,13 +447,13 @@ export function DataSeedingInterface({
           },
           body: JSON.stringify({
             projectId,
-            schema, // Pass the full schema for AI-powered logic generation
+            schema,
             csvMetadata: files.map((file) => ({
               headers: file.metadata.headers,
               sampleData: file.metadata.sampleRows || [],
               totalRows: file.metadata.totalRows,
             })),
-            useSimpleVersion: false, // Use AI-powered version with streaming by default
+            useSimpleVersion: false,
           }),
         }
       );
@@ -408,40 +461,33 @@ export function DataSeedingInterface({
       if (!createFunctionResponse.ok) {
         const errorData = await createFunctionResponse.json();
         throw new Error(
-          `Failed to deploy CPU-optimized Edge Function: ${errorData.error}`
+          `Failed to deploy Edge Function: ${errorData.error}`
         );
-      }
-
-      // Simulate file upload progress
-      for (let progress = 0; progress <= 100; progress += 10) {
-        setUploadProgress((prev) => ({
-          ...prev,
-          [files[0].id]: progress,
-        }));
-        await new Promise((resolve) => setTimeout(resolve, 200));
       }
 
       setIsUploading(false);
 
-      // Create seeding job
       const currentUserId = userEmail?.split("@")[0] || "data-seeding";
+      const [firstFile, ...remainingFiles] = files;
+
+      // Store remaining files in the queue for onComplete to pick up
+      pendingSeedFilesRef.current = remainingFiles;
+
+      const targetTable = getTargetTable(firstFile);
+      console.log(`▶️ Starting seeding: ${firstFile.filename} → table: ${targetTable ?? '(all tables)'}`);
+
       const seedingJob: SeedingJob = {
         id: `job_${Date.now()}`,
         userId: currentUserId,
         projectId,
-        fileId: files[0].id,
-        fileUpload: files[0],
+        fileId: firstFile.id,
+        fileUpload: firstFile,
         schemaId: schema.id,
-        schema: {
-          ...schema,
-          projectId: projectId, // Ensure schema has project ID
-        },
-        projectConfig: {
-          projectId,
-          serviceRoleKey,
-        },
+        schema: { ...schema, projectId },
+        projectConfig: { projectId, serviceRoleKey },
+        targetTable,
         status: "processing",
-        totalRows: files[0].metadata.totalRows || 0,
+        totalRows: firstFile.metadata.totalRows || 0,
         processedRows: 0,
         successfulRows: 0,
         failedRows: 0,
@@ -449,7 +495,7 @@ export function DataSeedingInterface({
         warnings: [],
         statistics: {
           totalFiles: files.length,
-          totalRows: files[0].metadata.totalRows || 0,
+          totalRows: firstFile.metadata.totalRows || 0,
           processedRows: 0,
           successfulRows: 0,
           failedRows: 0,
@@ -468,14 +514,12 @@ export function DataSeedingInterface({
       };
 
       setSeedingJobs([seedingJob]);
-
-      // Start streaming seeding process
       await startStreamSeeding(seedingJob);
     } catch (error) {
       setIsUploading(false);
       console.error("Seeding failed:", error);
     }
-  }, [files, projectId, schema, configuration, startStreamSeeding, serviceRoleKey]);
+  }, [files, projectId, schema, configuration, startStreamSeeding, serviceRoleKey, getTargetTable, userEmail]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 Bytes";

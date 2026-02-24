@@ -83,6 +83,7 @@ export interface SeedingJob {
     projectId: string;
     serviceRoleKey: string;
   };
+  targetTable?: string; // when set, the Edge Function only seeds this one table
 }
 
 export interface DataError {

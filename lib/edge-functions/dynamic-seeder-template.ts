@@ -34,6 +34,7 @@ interface SeedDataRequest {
   chunkIndex?: number;
   totalChunks?: number;
   processedRows?: number;
+  targetTable?: string;
 }
 
 interface SeedingProgress {
@@ -433,13 +434,18 @@ class DynamicCSVProcessor {
       
       // Process each table using the AI-generated order
       for (const tableName of tableOrder) {
+        // If a specific target table was requested, skip all others
+        if (this.request.targetTable && tableName !== this.request.targetTable) {
+          continue;
+        }
+
         // Check CPU time before processing each table
         const elapsedTime = Date.now() - startTime;
         if (elapsedTime > DynamicCSVProcessor.MAX_CPU_TIME) {
           console.log(\`⏰ CPU timeout reached (\${elapsedTime}ms), stopping table processing\`);
           break;
         }
-        
+
         console.log(\`📋 Processing table: \${tableName} (CPU time: \${elapsedTime}ms)\`);
         
         try {

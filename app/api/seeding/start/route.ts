@@ -319,9 +319,25 @@ async function handleStreamingResponse(edgeFunctionResponse: Response, projectId
 
         const chunk = decoder.decode(value);
         
-        // Check if this chunk indicates completion
+        // Check if this chunk indicates completion and log it for debugging
         if (chunk.includes('"type":"complete"') || chunk.includes('data: [DONE]')) {
           completed = true;
+          // Log the completion payload so we can see successfulRows / errors without Edge Function logs
+          if (chunk.includes('"type":"complete"')) {
+            try {
+              const match = chunk.match(/data: (\{.*\})/);
+              if (match) {
+                const event = JSON.parse(match[1]);
+                const stats = event?.data?.statistics;
+                if (stats) {
+                  console.log(`✅ Edge Function complete — successful: ${stats.successfulRows}, failed: ${stats.failedRows}, total: ${stats.totalRows}`);
+                  if (stats.errors?.length > 0) {
+                    console.log(`❌ Seeding errors (first 3):`, JSON.stringify(stats.errors.slice(0, 3)));
+                  }
+                }
+              }
+            } catch { /* non-critical — just for debugging */ }
+          }
         }
 
         // Forward the chunk to the client
@@ -336,10 +352,16 @@ async function handleStreamingResponse(edgeFunctionResponse: Response, projectId
         console.log("🔄 Continuation streaming completed - not re-enabling RLS yet");
       }
 
-      await writer.close();
+      try { await writer.close(); } catch { /* writer already closed when client disconnects */ }
     } catch (error) {
-      console.error("Error handling streaming response:", error);
-      
+      // Suppress the expected ERR_INVALID_STATE error that fires when the client
+      // disconnects after receiving the completion event (normal behaviour)
+      const isClosedError = error instanceof Error &&
+        ((error as NodeJS.ErrnoException).code === 'ERR_INVALID_STATE' || error.message?.includes('WritableStream'));
+      if (!isClosedError) {
+        console.error("Error handling streaming response:", error);
+      }
+
       // Re-enable RLS policies on error (only if this is not a continuation)
       if (!isContinuation) {
         console.log("🔐 Stream error - re-enabling RLS policies...");
@@ -347,8 +369,8 @@ async function handleStreamingResponse(edgeFunctionResponse: Response, projectId
       } else {
         console.log("🔄 Continuation stream error - not re-enabling RLS yet");
       }
-      
-      await writer.close();
+
+      try { await writer.close(); } catch { /* writer already closed */ }
     }
   })();
 
