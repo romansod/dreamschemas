@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SchemaAnalyzer } from '../schema-analyzer';
 import { createMockProvider } from '../providers/mock';
 import { makeCSVResult } from './helpers';
@@ -101,6 +101,13 @@ describe('SchemaAnalyzer', () => {
   });
 
   describe('analyzeSchema – fallback on provider failure', () => {
+    beforeEach(() => {
+      console.log('== Expected errors below (provider failure simulation) ==');
+    });
+    afterEach(() => {
+      console.log('== End of expected errors ==');
+    });
+
     it('falls back to rule-based analysis when provider throws', async () => {
       const analyzer = new SchemaAnalyzer(
         createMockProvider({ shouldFail: true, failMessage: 'API down' })
