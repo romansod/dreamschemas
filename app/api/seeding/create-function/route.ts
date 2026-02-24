@@ -464,14 +464,12 @@ const getTableSchema = (tableName) => {
   return table || null;
 };
 
-// Get mappable columns (excluding system columns)
+// Get mappable columns (all schema columns — id/created_at/updated_at can come from CSV too)
 const getTableColumns = (tableName) => {
   const table = getTableSchema(tableName);
   if (!table) return [];
-  
-  return table.columns
-    .filter(col => !['id', 'created_at', 'updated_at'].includes(col.name))
-    .map(col => col.name);
+
+  return table.columns.map(col => col.name);
 };
 
 // Enhanced type-aware value conversion with better TEXT/UUID handling
@@ -736,11 +734,17 @@ const mapCSVToTableColumns = (csvRow, tableName) => {
       console.log(\`   ⚠️  Conversion errors (\${conversionErrors.length}): \${conversionErrors.slice(0, 2).join(', ')}\`);
     }
     
-    // Check if we have any meaningful data mapped
-    const meaningfulFieldCount = mappedFields.length;
-    if (meaningfulFieldCount === 0) {
-      console.warn(\`⚠️  \${tableName}: No meaningful data could be mapped from CSV\`);
-      return null;
+    // Check if we have any data mapped from CSV beyond the auto-generated defaults.
+    // Even if mappedFields is empty, mapped still has id/created_at/updated_at defaults,
+    // so the insert can proceed. Only skip entirely if there are non-system schema columns
+    // and none could be matched — a sign of a column name mismatch worth logging.
+    const nonSystemMapped = mappedFields.filter(f =>
+      !f.includes('→ id ') && !f.includes('→ created_at ') && !f.includes('→ updated_at ')
+    );
+    const nonSystemTargetCols = targetColumns.filter(c => !['id', 'created_at', 'updated_at'].includes(c));
+    if (nonSystemMapped.length === 0 && nonSystemTargetCols.length > 0) {
+      console.warn(\`⚠️  \${tableName}: No non-system data could be mapped from CSV (columns: \${nonSystemTargetCols.slice(0, 5).join(', ')})\`);
+      // Still proceed — the row may be useful (e.g. lookup tables with only id)
     }
     
     return mapped;

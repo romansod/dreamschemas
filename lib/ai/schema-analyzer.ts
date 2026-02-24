@@ -751,78 +751,108 @@ Format your response as JSON with the following structure:
     
     const tables = csvResults.map(result => {
       const tableName = this.sanitizeTableName(result.fileName);
-      
-      const csvColumnNames = new Set(result.columns.map(col => this.sanitizeColumnName(col.name)));
-      const hasUserIdInCsv = csvColumnNames.has('user_id');
-
-      const mapColumn = (col: typeof result.columns[number]) => {
-        const colName = this.sanitizeColumnName(col.name);
-
-        let type: PostgresType = 'TEXT';
-        const constraints: string[] = [];
-        let precision: number | undefined;
-        let scale: number | undefined;
-        let length: number | undefined;
-
-        if (colName === 'id') {
-          type = 'UUID';
-          constraints.push('PRIMARY KEY', 'DEFAULT uuid_generate_v4()');
-        } else if (colName === 'created_at' || colName === 'updated_at') {
-          type = 'TIMESTAMPTZ';
-          constraints.push('DEFAULT NOW()');
-        } else if (colName === 'user_id') {
-          type = 'UUID';
-          constraints.push('REFERENCES auth.users(id)');
-        } else {
-          const isForeignKey = colName.endsWith('_id');
-          if (isForeignKey) {
-            type = 'UUID';
-            constraints.push(`REFERENCES ${colName.replace(/_id$/, '')}s(id)`);
-          } else if (colName.includes('email')) {
-            type = 'VARCHAR';
-            length = 255;
-          } else if (colName.includes('year') || colName.includes('count') || colName.includes('number')) {
-            type = 'SMALLINT';
-          } else if (colName.includes('latitude') || colName.includes('longitude')) {
-            type = 'DECIMAL';
-            precision = 10;
-            scale = 6;
-          } else if (colName.includes('price') || colName.includes('amount') || colName.includes('cost')) {
-            type = 'NUMERIC';
-            precision = 10;
-            scale = 2;
-          } else if (col.inferredType === 'INTEGER') {
-            type = 'INTEGER';
-          } else if (col.inferredType === 'BOOLEAN') {
-            type = 'BOOLEAN';
-          } else if (col.inferredType && col.inferredType !== 'TEXT') {
-            type = col.inferredType as PostgresType;
-          }
-        }
-
-        return {
-          name: colName,
-          type,
-          nullable: colName !== 'id' && (col.nullCount > 0 || col.nullCount / col.totalCount > 0.01),
-          ...(length && { length }),
-          ...(precision && { precision }),
-          ...(scale && { scale }),
-          constraints,
-          reasoning: `Inferred from CSV column "${col.name}". Null rate: ${(col.nullCount / col.totalCount * 100).toFixed(1)}%`,
-        };
-      };
 
       return {
         name: tableName,
-        columns: result.columns.map(mapColumn),
+        columns: [
+          // Always add UUID primary key
+          {
+            name: 'id',
+            type: 'UUID' as const,
+            nullable: false,
+            constraints: ['PRIMARY KEY', 'DEFAULT uuid_generate_v4()'],
+            reasoning: 'UUID primary key following PostgreSQL best practices',
+          },
+          // Add user_id for RLS if not present
+          {
+            name: 'user_id',
+            type: 'UUID' as const,
+            nullable: true,
+            constraints: ['REFERENCES auth.users(id)'],
+            reasoning: 'Links record to user for RLS policies and data ownership',
+          },
+          // Map CSV columns with improved type detection
+          ...result.columns
+            .filter(col => {
+              const colName = this.sanitizeColumnName(col.name);
+              return colName !== 'id' && colName !== 'user_id' && colName !== 'created_at' && colName !== 'updated_at';
+            })
+            .map(col => {
+              const colName = this.sanitizeColumnName(col.name);
+              
+              // Improved type detection
+              let type: PostgresType = 'TEXT';
+              const constraints: string[] = [];
+              let precision: number | undefined;
+              let scale: number | undefined;
+              let length: number | undefined;
+              
+              // Check for foreign key patterns
+              const isForeignKey = colName.endsWith('_id') && colName !== 'user_id';
+              
+              if (isForeignKey) {
+                type = 'UUID';
+                constraints.push(`REFERENCES ${colName.replace('_id', '')}s(id)`);
+              } else if (colName.includes('email')) {
+                type = 'VARCHAR';
+                length = 255;
+              } else if (colName.includes('year') || colName.includes('count') || colName.includes('number')) {
+                type = 'SMALLINT';
+              } else if (colName.includes('latitude') || colName.includes('longitude')) {
+                type = 'DECIMAL';
+                precision = 10;
+                scale = 6;
+              } else if (colName.includes('price') || colName.includes('amount') || colName.includes('cost')) {
+                type = 'NUMERIC';
+                precision = 10;
+                scale = 2;
+              } else if (col.inferredType === 'INTEGER') {
+                type = 'INTEGER';
+              } else if (col.inferredType === 'BOOLEAN') {
+                type = 'BOOLEAN';
+              } else if (col.inferredType && col.inferredType !== 'TEXT') {
+                type = col.inferredType as PostgresType;
+              }
+              
+              return {
+                name: colName,
+                type,
+                nullable: col.nullCount > 0 || col.nullCount / col.totalCount > 0.01,
+                ...(length && { length }),
+                ...(precision && { precision }),
+                ...(scale && { scale }),
+                constraints,
+                reasoning: `Inferred from CSV data analysis. ${
+                  isForeignKey 
+                    ? 'Foreign key relationship detected.' 
+                    : ''
+                } Null rate: ${(col.nullCount / col.totalCount * 100).toFixed(1)}% - Made nullable for easier data import`,
+              };
+            }),
+          // Add timestamps
+          {
+            name: 'created_at',
+            type: 'TIMESTAMPTZ' as const,
+            nullable: false,
+            constraints: ['DEFAULT NOW()'],
+            reasoning: 'Standard audit timestamp',
+          },
+          {
+            name: 'updated_at',
+            type: 'TIMESTAMPTZ' as const,
+            nullable: false,
+            constraints: ['DEFAULT NOW()'],
+            reasoning: 'Standard audit timestamp',
+          },
+        ],
         relationships: [],
         indexes: [
-          ...(hasUserIdInCsv ? [{
+          {
             name: `idx_${tableName}_user_id`,
             columns: ['user_id'],
             unique: false,
             reasoning: 'Performance index for user-based queries and RLS policies',
-          }] : []),
+          },
           {
             name: `idx_${tableName}_created_at`,
             columns: ['created_at'],
@@ -830,7 +860,7 @@ Format your response as JSON with the following structure:
             reasoning: 'Common query pattern for timestamp-based filtering',
           },
         ],
-        rlsPolicies: hasUserIdInCsv ? [
+        rlsPolicies: [
           {
             name: `${tableName}_select_policy`,
             operation: 'SELECT' as const,
@@ -860,36 +890,6 @@ Format your response as JSON with the following structure:
             using: 'auth.uid() = user_id',
             reasoning: 'Users can only delete their own records',
           },
-        ] : [
-          {
-            name: `${tableName}_select_policy`,
-            operation: 'SELECT' as const,
-            definition: 'auth.uid() IS NOT NULL',
-            using: 'auth.uid() IS NOT NULL',
-            reasoning: 'Allow authenticated users to read — no user_id column in source data',
-          },
-          {
-            name: `${tableName}_insert_policy`,
-            operation: 'INSERT' as const,
-            definition: 'auth.uid() IS NOT NULL',
-            with_check: 'auth.uid() IS NOT NULL',
-            reasoning: 'Allow authenticated users to insert — no user_id column in source data',
-          },
-          {
-            name: `${tableName}_update_policy`,
-            operation: 'UPDATE' as const,
-            definition: 'auth.uid() IS NOT NULL',
-            using: 'auth.uid() IS NOT NULL',
-            with_check: 'auth.uid() IS NOT NULL',
-            reasoning: 'Allow authenticated users to update — no user_id column in source data',
-          },
-          {
-            name: `${tableName}_delete_policy`,
-            operation: 'DELETE' as const,
-            definition: 'auth.uid() IS NOT NULL',
-            using: 'auth.uid() IS NOT NULL',
-            reasoning: 'Allow authenticated users to delete — no user_id column in source data',
-          },
         ],
         comment: `Generated from CSV file: ${result.fileName}`,
       };
@@ -897,7 +897,7 @@ Format your response as JSON with the following structure:
 
     return {
       confidence: 0.6,
-      reasoning: 'FALLBACK: Rule-based analysis used due to AI service failure. Tables were not normalized or split. Only columns present in the source CSV are included (plus id, created_at, updated_at).',
+      reasoning: 'FALLBACK: Rule-based analysis used due to AI service failure. Tables were not normalized or split. Added user_id columns and proper RLS policies for user ownership.',
       tables,
       suggestions: [
         {

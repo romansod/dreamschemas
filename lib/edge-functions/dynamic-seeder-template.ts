@@ -330,7 +330,7 @@ class DynamicCSVProcessor {
 
         newProcessedRows = processedRows + chunkLines.length;
         this.progress.processedRows = newProcessedRows;
-        this.progress.successfulRows = Math.max(this.progress.successfulRows, newProcessedRows);
+        // successfulRows is incremented by processChunkDataWithDynamicLogic per insert — don't overwrite it here
 
         console.log(\`✅ Completed chunk, total processed: \${newProcessedRows}/\${totalRows}\`);
       }
@@ -353,10 +353,9 @@ class DynamicCSVProcessor {
           \`Chunk complete: \${newProcessedRows}/\${totalRows} rows (\${Math.round(continuationPercent)}%)\`
         );
         onProgress(this.progress);
-        
-        // Schedule next chunk
-        this.scheduleNextChunk(newProcessedRows, totalRows, chunkSize);
-        
+        // The streaming client receives the needsContinuation progress event and
+        // starts the next request itself — do NOT call scheduleNextChunk here or
+        // we get two concurrent invocations (double-firing → BigQuery quota blast).
         return this.progress;
       }
 
@@ -536,16 +535,17 @@ class DynamicCSVProcessor {
                 return null;
               }
               
-              // SAFE destructuring - create new object without risky destructuring
-              const rowWithoutId = {};
+              // Build insert object — keep id (client-generated UUID ensures insert succeeds
+              // even when the DB column has no DEFAULT) but strip internal-only metadata.
+              const rowForInsert = {};
               for (const [key, value] of Object.entries(row)) {
-                if (key !== 'id' && key !== '_addressKey') {
-                  rowWithoutId[key] = value;
+                if (key !== '_addressKey') {
+                  rowForInsert[key] = value;
                 }
               }
-              
-              console.log(\`✅ DIAG: Successfully processed row \${index}, keys: \${Object.keys(rowWithoutId).length}\`);
-              return rowWithoutId;
+
+              console.log(\`✅ DIAG: Successfully processed row \${index}, keys: \${Object.keys(rowForInsert).length}\`);
+              return rowForInsert;
             } catch (error) {
               console.error(\`❌ CRITICAL ERROR preparing row \${index} in \${tableName}: \${error.message}\`);
               console.error(\`🔍 DIAG: Row data: \${JSON.stringify(row, null, 2)}\`);

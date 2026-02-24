@@ -693,14 +693,18 @@ ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
           ...(col.scale !== undefined && { scale: col.scale }),
           ...(col.defaultValue !== undefined && { defaultValue: col.defaultValue }),
           constraints: col.constraints.map(c => {
-            // Handle foreign key references in simplified format
-            if (c.startsWith('references ')) {
-              const [, targetTable] = c.split('references ');
+            // Handle foreign key references (case-insensitive)
+            if (c.toLowerCase().startsWith('references ')) {
+              const rest = c.slice(c.indexOf(' ') + 1);
               return {
                 type: 'FOREIGN KEY' as ConstraintType,
-                referencedTable: targetTable.split('(')[0].trim(),
-                referencedColumn: targetTable.split('(')[1].split(')')[0].trim()
+                referencedTable: rest.split('(')[0].trim(),
+                referencedColumn: rest.split('(')[1]?.split(')')[0].trim() || 'id'
               };
+            }
+            // Handle DEFAULT constraints — split type from value
+            if (c.startsWith('DEFAULT ')) {
+              return { type: 'DEFAULT' as ConstraintType, value: c.slice(8) };
             }
             return { type: c as ConstraintType };
           }),
