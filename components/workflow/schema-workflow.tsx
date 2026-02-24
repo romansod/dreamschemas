@@ -455,7 +455,7 @@ export function SchemaWorkflow({ user }: SchemaWorkflowProps) {
     (csvResults: CSVValidationResult[]) => {
       return csvResults.map((result) => ({
         id: generateId(),
-        fileName: "uploaded_file.csv",
+        fileName: result.originalMetadata?.name || "uploaded_file.csv",
         headers: result.metadata.headers,
         data: result.sampleData.map((row) =>
           result.metadata.headers.map((header) => row[header] || null)
