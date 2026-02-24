@@ -228,7 +228,7 @@ const mapToConstraintType = (constraint: string): ConstraintType => {
   if (normalized === "primary key" || normalized.includes("primary key")) {
     return "PRIMARY KEY";
   }
-  if (normalized === "foreign key" || normalized.includes("foreign key")) {
+  if (normalized === "foreign key" || normalized.includes("foreign key") || normalized.startsWith("references ")) {
     return "FOREIGN KEY";
   }
   if (normalized === "unique") {
@@ -254,7 +254,7 @@ const mapToConstraintType = (constraint: string): ConstraintType => {
     default: "DEFAULT",
   };
 
-  return constraintMap[normalized] || "DEFAULT"; // Better fallback than CHECK
+  return constraintMap[normalized] || "FOREIGN KEY"; // unrecognised constraints (e.g. REFERENCES …) are FK-like
 };
 
 export function SchemaWorkflow({ user }: SchemaWorkflowProps) {

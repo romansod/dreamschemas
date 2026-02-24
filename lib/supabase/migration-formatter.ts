@@ -372,7 +372,7 @@ export class MigrationFormatter {
       case 'NOT NULL':
         return 'NOT NULL';
       case 'DEFAULT':
-        return `DEFAULT ${constraint.value}`;
+        return constraint.value ? `DEFAULT ${constraint.value}` : '';
       case 'CHECK':
         return `CHECK (${constraint.value})`;
       default:

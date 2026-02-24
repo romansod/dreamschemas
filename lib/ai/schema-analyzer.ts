@@ -1,11 +1,12 @@
-import { google } from '@ai-sdk/google';
-import { generateObject, generateText, streamText } from 'ai';
+// ai SDK used via provider abstraction (see ./providers/)
 import { z } from 'zod';
-import type { 
+import type {
   CSVParseResult,
   TypeInferenceResult
 } from '../../types/csv.types';
 import type { PostgresType, DatabaseSchema } from '../../types/schema.types';
+import type { AIProvider } from './providers/types';
+import { createAnthropicProvider } from './providers/anthropic';
 
 // Confidence scoring thresholds
 export const CONFIDENCE_THRESHOLDS = {
@@ -164,18 +165,13 @@ interface ColumnStatistics {
  * - Made fallback analysis more permissive with nullability
  */
 export class SchemaAnalyzer {
-  private model;
-  private readonly temperature = 0.3; // Consistent schema generation
+  private readonly temperature = 0.3;
   private readonly maxRetries = 3;
-  private readonly maxSampleSize = 1000; // Limit sample size for large datasets
+  private readonly maxSampleSize = 1000;
+  private readonly provider: AIProvider;
 
-  constructor() {
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GOOGLE_GENERATIVE_AI_API_KEY environment variable is required');
-    }
-    
-    this.model = google('gemini-2.5-flash-preview-04-17');
+  constructor(provider?: AIProvider) {
+    this.provider = provider ?? createAnthropicProvider();
   }
 
   /**
@@ -201,35 +197,27 @@ export class SchemaAnalyzer {
       const prompt = this.buildAnalysisPrompt(optimizedResults, options);
       console.log(`📝 Analysis prompt built (${prompt.length} characters)`);
       
-      const result = await generateObject({
-        model: this.model,
-        schema: SchemaAnalysisSchema,
-        system: this.buildSchemaGenerationSystemPrompt(),
+      const result = await this.provider.generateSchema(
         prompt,
-        maxRetries: this.maxRetries,
-        temperature: this.temperature,
-      });
+        this.buildSchemaGenerationSystemPrompt(),
+        SchemaAnalysisSchema,
+        { temperature: this.temperature, maxRetries: this.maxRetries }
+      );
 
-      console.log(`🎉 AI analysis successful! Generated ${result.object.tables.length} tables`);
-      console.log(`📈 Confidence score: ${result.object.confidence}`);
-      console.log(`🔗 Total relationships: ${result.object.tables.reduce((sum, t) => sum + t.relationships.length, 0)}`);
-
-      // Log the full AI-generated JSON for debugging
-/*       console.log('\n🔍 FULL AI-GENERATED SCHEMA JSON:');
-      console.log('=====================================');
-      console.log(JSON.stringify(result.object, null, 2));
-      console.log('=====================================\n'); */
+      console.log(`🎉 AI analysis successful! Generated ${result.tables.length} tables`);
+      console.log(`📈 Confidence score: ${result.confidence}`);
+      console.log(`🔗 Total relationships: ${result.tables.reduce((sum, t) => sum + t.relationships.length, 0)}`);
 
       // Additional validation for foreign key relationships (but don't fail on errors)
       try {
-        this.validateForeignKeyRelationships(result.object);
+        this.validateForeignKeyRelationships(result);
         console.log(`✅ Foreign key validation passed`);
       } catch (validationError) {
         console.warn(`⚠️  Foreign key validation warning:`, validationError);
         // Don't fail the entire analysis for validation issues
       }
 
-      return result.object;
+      return result;
     } catch (error) {
       console.error('❌ AI schema analysis failed:', error);
       
@@ -537,33 +525,24 @@ CRITICAL REQUIREMENTS:
   ) {
     const prompt = this.buildStreamingPrompt(csvResults, options);
     const cleanMarkdownFromJson = this.cleanMarkdownFromJson.bind(this);
+    const providerStream = this.provider.streamText(
+      prompt,
+      this.buildSchemaGenerationSystemPrompt(),
+      { temperature: this.temperature, maxRetries: this.maxRetries }
+    );
 
-    try {
-      const stream = await streamText({
-        model: this.model,
-        system: this.buildSchemaGenerationSystemPrompt(),
-        prompt,
-        maxRetries: this.maxRetries,
-        temperature: this.temperature,
-      });
-
-      // Create a transform stream that cleans markdown from the output
-      const cleanStream = {
-        textStream: {
-          async *[Symbol.asyncIterator](): AsyncGenerator<string> {
-            for await (const chunk of stream.textStream) {
-              yield cleanMarkdownFromJson(chunk);
-            }
+    const cleanStream = {
+      textStream: {
+        async *[Symbol.asyncIterator](): AsyncGenerator<string> {
+          for await (const chunk of providerStream) {
+            yield cleanMarkdownFromJson(chunk);
           }
-        },
-        usage: stream.usage
-      };
+        }
+      },
+      usage: Promise.resolve({ totalTokens: 0 }),
+    };
 
-      return cleanStream;
-    } catch (error) {
-      console.error('AI streaming analysis failed:', error);
-      throw error;
-    }
+    return cleanStream;
   }
 
   /**
@@ -581,16 +560,12 @@ CRITICAL REQUIREMENTS:
     const prompt = this.buildRefinementPrompt(currentSchema, userFeedback, context);
 
     try {
-      const result = await generateText({
-        model: this.model,
-        system: this.buildSchemaGenerationSystemPrompt(),
+      const text = await this.provider.generateText(
         prompt,
-        maxRetries: this.maxRetries,
-        temperature: this.temperature,
-      });
-
-      // Parse the refinement result
-      return this.parseRefinementResult(result.text);
+        this.buildSchemaGenerationSystemPrompt(),
+        { temperature: this.temperature, maxRetries: this.maxRetries }
+      );
+      return this.parseRefinementResult(text);
     } catch (error) {
       console.error('AI schema refinement failed:', error);
       throw error;

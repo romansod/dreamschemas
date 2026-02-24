@@ -1,0 +1,748 @@
+{
+  "confidence": 0.95,
+  "reasoning": "Five related CSV files represent a classic e-commerce domain. The data is already well-normalised: users, categories (with self-referential hierarchy), products (FK to categories), orders (FK to users), and order_items (junction table with FKs to both orders and products). UUIDs are used throughout as primary and foreign keys. Enum candidates: orders.status (pending/processing/shipped/completed/cancelled) and orders.payment_method (credit_card/paypal/stripe), users.role (admin/customer/moderator). Several monetary columns (price, total_amount, unit_price, discount_amount) should be NUMERIC(10,2). Nullable fields identified from actual null values in the data: phone, avatar_url, compare_at_price, weight_kg, shipped_at, delivered_at, categories.parent_id (root nodes). The order_items table is a pure junction table.",
+  "tables": [
+    {
+      "name": "users",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["PRIMARY KEY", "DEFAULT uuid_generate_v4()"],
+          "reasoning": "UUID primary key"
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false,
+          "constraints": ["UNIQUE", "NOT NULL"],
+          "reasoning": "Email addresses are unique identifiers; never null in the data"
+        },
+        {
+          "name": "full_name",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Always present in sample data"
+        },
+        {
+          "name": "role",
+          "type": "ENUM",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT 'customer'"],
+          "reasoning": "Low-cardinality column with values admin/customer/moderator"
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT true"],
+          "reasoning": "Boolean flag, always present"
+        },
+        {
+          "name": "phone",
+          "type": "VARCHAR",
+          "length": 30,
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "E.164 format phone; nullable - several users have no phone"
+        },
+        {
+          "name": "avatar_url",
+          "type": "TEXT",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Optional profile picture URL"
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        }
+      ],
+      "relationships": [],
+      "indexes": [
+        {
+          "name": "idx_users_email",
+          "columns": ["email"],
+          "unique": true,
+          "reasoning": "Unique constraint and frequent login lookup"
+        },
+        {
+          "name": "idx_users_role",
+          "columns": ["role"],
+          "unique": false,
+          "reasoning": "Filter by role (admin, moderator queries)"
+        }
+      ],
+      "rlsPolicies": [
+        {
+          "name": "users_select_own",
+          "operation": "SELECT",
+          "definition": "auth.uid() = id",
+          "using": "auth.uid() = id",
+          "reasoning": "Users can only read their own profile"
+        },
+        {
+          "name": "users_insert_own",
+          "operation": "INSERT",
+          "definition": "auth.uid() = id",
+          "with_check": "auth.uid() = id",
+          "reasoning": "Users can only insert their own profile"
+        },
+        {
+          "name": "users_update_own",
+          "operation": "UPDATE",
+          "definition": "auth.uid() = id",
+          "using": "auth.uid() = id",
+          "with_check": "auth.uid() = id",
+          "reasoning": "Users can only update their own profile"
+        },
+        {
+          "name": "users_delete_own",
+          "operation": "DELETE",
+          "definition": "auth.uid() = id",
+          "using": "auth.uid() = id",
+          "reasoning": "Users can only delete their own profile"
+        }
+      ],
+      "comment": "Application users with role-based access control"
+    },
+    {
+      "name": "categories",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["PRIMARY KEY", "DEFAULT uuid_generate_v4()"],
+          "reasoning": "UUID primary key"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Category display name; always present"
+        },
+        {
+          "name": "slug",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false,
+          "constraints": ["NOT NULL", "UNIQUE"],
+          "reasoning": "URL-safe unique identifier for routing"
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Optional long-form description"
+        },
+        {
+          "name": "parent_id",
+          "type": "UUID",
+          "nullable": true,
+          "constraints": ["REFERENCES categories(id) ON DELETE SET NULL"],
+          "reasoning": "Self-referential FK for hierarchy; null for root nodes (Electronics, Clothing, Home & Garden)"
+        },
+        {
+          "name": "sort_order",
+          "type": "INTEGER",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Optional display ordering within parent"
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        }
+      ],
+      "relationships": [
+        {
+          "type": "one-to-many",
+          "targetTable": "categories",
+          "sourceColumn": "parent_id",
+          "targetColumn": "id",
+          "confidence": 0.98,
+          "reasoning": "Self-referential parent/child hierarchy; parent_id is null for top-level categories"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_categories_slug",
+          "columns": ["slug"],
+          "unique": true,
+          "reasoning": "Unique slug for URL routing"
+        },
+        {
+          "name": "idx_categories_parent_id",
+          "columns": ["parent_id"],
+          "unique": false,
+          "reasoning": "Efficient child-category lookups"
+        }
+      ],
+      "rlsPolicies": [
+        {
+          "name": "categories_select_public",
+          "operation": "SELECT",
+          "definition": "true",
+          "using": "true",
+          "reasoning": "Categories are public catalogue data readable by anyone"
+        },
+        {
+          "name": "categories_insert_admin",
+          "operation": "INSERT",
+          "definition": "auth.role() = 'admin'",
+          "with_check": "auth.role() = 'admin'",
+          "reasoning": "Only admins can create categories"
+        },
+        {
+          "name": "categories_update_admin",
+          "operation": "UPDATE",
+          "definition": "auth.role() = 'admin'",
+          "using": "auth.role() = 'admin'",
+          "with_check": "auth.role() = 'admin'",
+          "reasoning": "Only admins can update categories"
+        },
+        {
+          "name": "categories_delete_admin",
+          "operation": "DELETE",
+          "definition": "auth.role() = 'admin'",
+          "using": "auth.role() = 'admin'",
+          "reasoning": "Only admins can delete categories"
+        }
+      ],
+      "comment": "Product categories with self-referential parent hierarchy"
+    },
+    {
+      "name": "products",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["PRIMARY KEY", "DEFAULT uuid_generate_v4()"],
+          "reasoning": "UUID primary key"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Product name; never null"
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Optional product description"
+        },
+        {
+          "name": "price",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Retail price; always present"
+        },
+        {
+          "name": "compare_at_price",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Optional original/compare price; several products have no compare price"
+        },
+        {
+          "name": "stock_quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT 0"],
+          "reasoning": "Inventory count; always present"
+        },
+        {
+          "name": "sku",
+          "type": "VARCHAR",
+          "length": 100,
+          "nullable": false,
+          "constraints": ["NOT NULL", "UNIQUE"],
+          "reasoning": "Stock keeping unit; unique product identifier"
+        },
+        {
+          "name": "category_id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["NOT NULL", "REFERENCES categories(id)"],
+          "reasoning": "FK to categories; all products have a category"
+        },
+        {
+          "name": "is_published",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT false"],
+          "reasoning": "Publication status flag"
+        },
+        {
+          "name": "weight_kg",
+          "type": "NUMERIC",
+          "precision": 6,
+          "scale": 2,
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Shipping weight in kg; optional"
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        }
+      ],
+      "relationships": [
+        {
+          "type": "one-to-many",
+          "targetTable": "categories",
+          "sourceColumn": "category_id",
+          "targetColumn": "id",
+          "confidence": 0.99,
+          "reasoning": "category_id matches ids in the categories table; classic FK pattern"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_products_sku",
+          "columns": ["sku"],
+          "unique": true,
+          "reasoning": "Unique SKU for inventory lookups"
+        },
+        {
+          "name": "idx_products_category_id",
+          "columns": ["category_id"],
+          "unique": false,
+          "reasoning": "Efficient category-based product listing"
+        },
+        {
+          "name": "idx_products_is_published",
+          "columns": ["is_published"],
+          "unique": false,
+          "reasoning": "Filter published products for storefront queries"
+        }
+      ],
+      "rlsPolicies": [
+        {
+          "name": "products_select_public",
+          "operation": "SELECT",
+          "definition": "true",
+          "using": "true",
+          "reasoning": "Published products are public catalogue data"
+        },
+        {
+          "name": "products_insert_admin",
+          "operation": "INSERT",
+          "definition": "auth.role() = 'admin'",
+          "with_check": "auth.role() = 'admin'",
+          "reasoning": "Only admins can create products"
+        },
+        {
+          "name": "products_update_admin",
+          "operation": "UPDATE",
+          "definition": "auth.role() = 'admin'",
+          "using": "auth.role() = 'admin'",
+          "with_check": "auth.role() = 'admin'",
+          "reasoning": "Only admins can update products"
+        },
+        {
+          "name": "products_delete_admin",
+          "operation": "DELETE",
+          "definition": "auth.role() = 'admin'",
+          "using": "auth.role() = 'admin'",
+          "reasoning": "Only admins can delete products"
+        }
+      ],
+      "comment": "Product catalogue with pricing, inventory, and category assignment"
+    },
+    {
+      "name": "orders",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["PRIMARY KEY", "DEFAULT uuid_generate_v4()"],
+          "reasoning": "UUID primary key"
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["NOT NULL", "REFERENCES users(id)"],
+          "reasoning": "FK to users; every order belongs to a user"
+        },
+        {
+          "name": "status",
+          "type": "ENUM",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT 'pending'"],
+          "reasoning": "Order lifecycle status: pending/processing/shipped/completed/cancelled"
+        },
+        {
+          "name": "total_amount",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Order total; always present"
+        },
+        {
+          "name": "discount_amount",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT 0.00"],
+          "reasoning": "Discount applied to order; defaults to 0"
+        },
+        {
+          "name": "shipping_amount",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT 0.00"],
+          "reasoning": "Shipping cost; 0.00 for free shipping orders"
+        },
+        {
+          "name": "shipping_address",
+          "type": "TEXT",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Street address; nullable for digital/pickup orders"
+        },
+        {
+          "name": "shipping_city",
+          "type": "VARCHAR",
+          "length": 100,
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Shipping city"
+        },
+        {
+          "name": "shipping_country",
+          "type": "VARCHAR",
+          "length": 10,
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "ISO country code (2-letter)"
+        },
+        {
+          "name": "payment_method",
+          "type": "ENUM",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Payment method: credit_card/paypal/stripe; nullable for draft orders"
+        },
+        {
+          "name": "placed_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Timestamp when order was submitted; always present"
+        },
+        {
+          "name": "shipped_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Null until order is shipped"
+        },
+        {
+          "name": "delivered_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": true,
+          "constraints": [],
+          "reasoning": "Null until order is delivered"
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        }
+      ],
+      "relationships": [
+        {
+          "type": "one-to-many",
+          "targetTable": "users",
+          "sourceColumn": "user_id",
+          "targetColumn": "id",
+          "confidence": 0.99,
+          "reasoning": "user_id values match UUIDs in the users table"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_orders_user_id",
+          "columns": ["user_id"],
+          "unique": false,
+          "reasoning": "Efficient user order history lookup and RLS"
+        },
+        {
+          "name": "idx_orders_status",
+          "columns": ["status"],
+          "unique": false,
+          "reasoning": "Filter orders by lifecycle status"
+        },
+        {
+          "name": "idx_orders_placed_at",
+          "columns": ["placed_at"],
+          "unique": false,
+          "reasoning": "Date-range queries for order reports"
+        }
+      ],
+      "rlsPolicies": [
+        {
+          "name": "orders_select_own",
+          "operation": "SELECT",
+          "definition": "auth.uid() = user_id",
+          "using": "auth.uid() = user_id",
+          "reasoning": "Users can only view their own orders"
+        },
+        {
+          "name": "orders_insert_own",
+          "operation": "INSERT",
+          "definition": "auth.uid() = user_id",
+          "with_check": "auth.uid() = user_id",
+          "reasoning": "Users can only place orders for themselves"
+        },
+        {
+          "name": "orders_update_own",
+          "operation": "UPDATE",
+          "definition": "auth.uid() = user_id",
+          "using": "auth.uid() = user_id",
+          "with_check": "auth.uid() = user_id",
+          "reasoning": "Users can only update their own orders"
+        },
+        {
+          "name": "orders_delete_own",
+          "operation": "DELETE",
+          "definition": "auth.uid() = user_id",
+          "using": "auth.uid() = user_id",
+          "reasoning": "Users can only cancel their own orders"
+        }
+      ],
+      "comment": "Customer orders with status tracking and shipping details"
+    },
+    {
+      "name": "order_items",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["PRIMARY KEY", "DEFAULT uuid_generate_v4()"],
+          "reasoning": "UUID primary key"
+        },
+        {
+          "name": "order_id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["NOT NULL", "REFERENCES orders(id) ON DELETE CASCADE"],
+          "reasoning": "FK to orders; cascade delete removes items when order is deleted"
+        },
+        {
+          "name": "product_id",
+          "type": "UUID",
+          "nullable": false,
+          "constraints": ["NOT NULL", "REFERENCES products(id)"],
+          "reasoning": "FK to products"
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Units ordered; always at least 1"
+        },
+        {
+          "name": "unit_price",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "constraints": ["NOT NULL"],
+          "reasoning": "Price at time of purchase (snapshot, not live product price)"
+        },
+        {
+          "name": "discount_amount",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT 0.00"],
+          "reasoning": "Line-item discount"
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "constraints": ["NOT NULL", "DEFAULT NOW()"],
+          "reasoning": "Audit timestamp"
+        }
+      ],
+      "relationships": [
+        {
+          "type": "one-to-many",
+          "targetTable": "orders",
+          "sourceColumn": "order_id",
+          "targetColumn": "id",
+          "confidence": 0.99,
+          "reasoning": "order_id is a FK to the orders table; junction table pattern"
+        },
+        {
+          "type": "one-to-many",
+          "targetTable": "products",
+          "sourceColumn": "product_id",
+          "targetColumn": "id",
+          "confidence": 0.99,
+          "reasoning": "product_id is a FK to the products table; junction table pattern"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_order_items_order_id",
+          "columns": ["order_id"],
+          "unique": false,
+          "reasoning": "Efficient order line-item listing"
+        },
+        {
+          "name": "idx_order_items_product_id",
+          "columns": ["product_id"],
+          "unique": false,
+          "reasoning": "Efficient product sales history lookups"
+        }
+      ],
+      "rlsPolicies": [
+        {
+          "name": "order_items_select_own",
+          "operation": "SELECT",
+          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "using": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "reasoning": "Users can only view items in their own orders"
+        },
+        {
+          "name": "order_items_insert_own",
+          "operation": "INSERT",
+          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "with_check": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "reasoning": "Users can only add items to their own orders"
+        },
+        {
+          "name": "order_items_update_own",
+          "operation": "UPDATE",
+          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "using": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "with_check": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "reasoning": "Users can only update items in their own orders"
+        },
+        {
+          "name": "order_items_delete_own",
+          "operation": "DELETE",
+          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "using": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
+          "reasoning": "Users can only remove items from their own orders"
+        }
+      ],
+      "comment": "Junction table linking orders to products with quantity and price snapshot"
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "normalization",
+      "description": "Consider extracting shipping address into a separate 'addresses' table to allow address reuse and history",
+      "impact": "medium",
+      "reasoning": "Repeated shipping city/country/address fields could be normalised; currently denormalised for simplicity",
+      "actionable": true
+    },
+    {
+      "type": "best-practice",
+      "description": "Add CHECK constraint on orders.total_amount >= 0 and order_items.quantity > 0",
+      "impact": "medium",
+      "reasoning": "Prevents negative totals or zero-quantity line items at the database level",
+      "actionable": true
+    },
+    {
+      "type": "optimization",
+      "description": "Add a composite index on order_items(order_id, product_id) to speed up duplicate product detection per order",
+      "impact": "low",
+      "reasoning": "Useful if the application enforces one-line-per-product per order",
+      "actionable": true
+    },
+    {
+      "type": "data-quality",
+      "description": "Validate that order_items.unit_price is consistent with products.price at insert time via a trigger or application logic",
+      "impact": "high",
+      "reasoning": "unit_price is a price snapshot — small discrepancies were observed between product prices and order item prices",
+      "actionable": true
+    },
+    {
+      "type": "best-practice",
+      "description": "Add updated_at trigger function to automatically update the timestamp on row modification",
+      "impact": "medium",
+      "reasoning": "Without a trigger, updated_at won't update unless explicitly set by the application",
+      "actionable": true
+    }
+  ]
+}
