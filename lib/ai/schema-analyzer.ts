@@ -775,7 +775,7 @@ Format your response as JSON with the following structure:
           ...result.columns
             .filter(col => {
               const colName = this.sanitizeColumnName(col.name);
-              return colName !== 'id' && colName !== 'user_id';
+              return colName !== 'id' && colName !== 'user_id' && colName !== 'created_at' && colName !== 'updated_at';
             })
             .map(col => {
               const colName = this.sanitizeColumnName(col.name);
