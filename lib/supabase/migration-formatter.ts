@@ -438,7 +438,7 @@ export class MigrationFormatter {
     const indexType = index.type ? ` USING ${index.type}` : '';
     const columns = index.columns.map(col => `"${col}"`).join(', ');
     
-    return `CREATE ${uniqueKeyword}INDEX "${index.name}" ON "${tableName}"${indexType} (${columns});`;
+    return `CREATE ${uniqueKeyword}INDEX IF NOT EXISTS "${index.name}" ON "${tableName}"${indexType} (${columns});`;
   }
 
   /**
@@ -476,7 +476,8 @@ export class MigrationFormatter {
    * Generate RLS policy statement
    */
   private generateRLSPolicy(policy: RLSPolicy): string {
-    let sql = `CREATE POLICY "${policy.name}" ON "${policy.tableName}" FOR ${policy.command}`;
+    let sql = `DROP POLICY IF EXISTS "${policy.name}" ON "${policy.tableName}";\n`;
+    sql += `CREATE POLICY "${policy.name}" ON "${policy.tableName}" FOR ${policy.command}`;
     
     if (policy.roles && policy.roles.length > 0) {
       sql += ` TO ${policy.roles.join(', ')}`;

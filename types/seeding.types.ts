@@ -79,6 +79,10 @@ export interface SeedingJob {
   startedAt?: Date;
   completedAt?: Date;
   fileUpload?: FileUpload;
+  projectConfig?: {
+    projectId: string;
+    serviceRoleKey: string;
+  };
 }
 
 export interface DataError {

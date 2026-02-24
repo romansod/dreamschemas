@@ -115,6 +115,7 @@ export function useSeedingStream(options: SeedingStreamOptions = {}) {
         jobId,
         configuration: baseJob.configuration,
         schema: baseJob.schema,
+        projectConfig: baseJob.projectConfig,
         fileUpload: baseJob.fileUpload ? {
           storagePath: baseJob.fileUpload.storagePath,
           filename: baseJob.fileUpload.filename,

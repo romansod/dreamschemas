@@ -28,41 +28,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get project API key first
-    const apiKeysResponse = await fetch(
-      `https://api.supabase.com/v1/projects/${projectId}/api-keys`,
-      {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    if (!apiKeysResponse.ok) {
-      const error = await apiKeysResponse.text();
-      console.error("Failed to get project API keys:", error);
-      return NextResponse.json(
-        { error: `Failed to get project API keys: ${error}` },
-        { status: apiKeysResponse.status }
-      );
-    }
-
-    const apiKeys = await apiKeysResponse.json();
-    const serviceRoleKey = apiKeys.find((key: { name: string; api_key: string }) => key.name === "service_role")?.api_key;
-    const anonKey = apiKeys.find((key: { name: string; api_key: string }) => key.name === "anon")?.api_key;
+    // Get service role key provided directly by the user
+    const { serviceRoleKey } = body;
 
     if (!serviceRoleKey) {
       return NextResponse.json(
-        { error: "Could not find project service role key" },
-        { status: 500 }
-      );
-    }
-
-    if (!anonKey) {
-      return NextResponse.json(
-        { error: "Could not find project anon key" },
-        { status: 500 }
+        { error: "Service role key is required" },
+        { status: 400 }
       );
     }
 

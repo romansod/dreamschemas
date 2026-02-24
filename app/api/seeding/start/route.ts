@@ -41,43 +41,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get project details and API keys
-    const [projectResponse, apiKeysResponse] = await Promise.all([
-      fetch(`https://api.supabase.com/v1/projects/${projectId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }),
-      fetch(`https://api.supabase.com/v1/projects/${projectId}/api-keys`, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      })
-    ]);
-
-    if (!projectResponse.ok) {
-      return NextResponse.json(
-        { error: "Failed to get project details" },
-        { status: projectResponse.status }
-      );
-    }
-
-    if (!apiKeysResponse.ok) {
-      return NextResponse.json(
-        { error: "Failed to get project API keys" },
-        { status: apiKeysResponse.status }
-      );
-    }
-
-    const apiKeys = await apiKeysResponse.json();
-    const serviceRoleKey = apiKeys.find((key: { name: string; api_key: string }) => key.name === "service_role")?.api_key;
+    // Get service role key provided directly by the user (passed through projectConfig)
+    const serviceRoleKey = jobData.projectConfig?.serviceRoleKey;
 
     if (!serviceRoleKey) {
       return NextResponse.json(
-        { error: "Could not find project service role key" },
-        { status: 500 }
+        { error: "Service role key is required. Please provide your Supabase service role key in the seeding configuration." },
+        { status: 400 }
       );
     }
 

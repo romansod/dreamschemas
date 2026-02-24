@@ -8,6 +8,8 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,6 +29,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Database,
+  Eye,
+  EyeOff,
   FileText,
   Info,
   Loader2,
@@ -77,6 +81,8 @@ export function DataSeedingInterface({
     storedProject: null,
     passedProject: projectId,
   });
+  const [serviceRoleKey, setServiceRoleKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
 
   // Get OAuth instance (consistent with migration-deployer)
   const oauth = getSupabaseOAuth();
@@ -175,56 +181,40 @@ export function DataSeedingInterface({
     },
   });
 
-  // Initialize storage on component mount
+  // Initialize storage when service role key is provided
   useEffect(() => {
     const initStorage = async () => {
-      // Only proceed if we have OAuth connection and project ID
-      if (!oauth.getState().isConnected || !projectId) {
-        console.log("Waiting for OAuth connection and project ID...");
+      if (!oauth.getState().isConnected || !projectId || !serviceRoleKey) {
         return;
       }
 
       try {
+        const currentState = oauth.getState();
+        if (!currentState.accessToken) return;
+
         console.log("Creating csv-uploads bucket for user's project...");
-        await createBucket();
-      } catch (error) {
-        console.error("Storage initialization failed:", error);
-      }
-    };
-
-    const createBucket = async () => {
-      const currentState = oauth.getState();
-      if (!currentState.accessToken) {
-        throw new Error("No OAuth access token available");
-      }
-
-      try {
-        console.log("Creating csv-uploads bucket via API...");
         const response = await fetch("/api/storage/create-bucket", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${currentState.accessToken}`,
           },
-          body: JSON.stringify({
-            projectId: projectId,
-          }),
+          body: JSON.stringify({ projectId, serviceRoleKey }),
         });
 
         const result = await response.json();
-
         if (response.ok && result.success) {
-          console.log("✅ Bucket created successfully:", result.message);
+          console.log("✅ Bucket ready:", result.message);
         } else {
           console.error("❌ Failed to create bucket:", result.error);
         }
       } catch (error) {
-        console.error("❌ Error creating bucket:", error);
+        console.error("Storage initialization failed:", error);
       }
     };
 
     initStorage();
-  }, [oauth, projectId]);
+  }, [oauth, projectId, serviceRoleKey]);
 
   const handleFileSelect = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -260,6 +250,7 @@ export function DataSeedingInterface({
           },
           body: JSON.stringify({
             projectId: projectId,
+            serviceRoleKey,
           }),
         });
 
@@ -306,6 +297,7 @@ export function DataSeedingInterface({
             method: "POST",
             headers: {
               Authorization: `Bearer ${currentState.accessToken}`,
+              "X-Service-Role-Key": serviceRoleKey,
             },
             body: formData,
           });
@@ -367,7 +359,7 @@ export function DataSeedingInterface({
 
       setIsUploading(false);
     },
-    [projectId, storageManager, oauth]
+    [projectId, storageManager, oauth, serviceRoleKey]
   );
 
   const removeFile = useCallback((fileId: string) => {
@@ -380,9 +372,9 @@ export function DataSeedingInterface({
   }, []);
 
   const startSeeding = useCallback(async () => {
-    if (files.length === 0 || !oauth.getState().isConnected) {
+    if (files.length === 0 || !oauth.getState().isConnected || !serviceRoleKey) {
       console.error(
-        "Cannot start seeding: no files uploaded or not connected to Supabase"
+        "Cannot start seeding: no files uploaded, not connected to Supabase, or missing service role key"
       );
       return;
     }
@@ -444,6 +436,10 @@ export function DataSeedingInterface({
           ...schema,
           projectId: projectId, // Ensure schema has project ID
         },
+        projectConfig: {
+          projectId,
+          serviceRoleKey,
+        },
         status: "processing",
         totalRows: files[0].metadata.totalRows || 0,
         processedRows: 0,
@@ -479,7 +475,7 @@ export function DataSeedingInterface({
       setIsUploading(false);
       console.error("Seeding failed:", error);
     }
-  }, [files, projectId, schema, configuration, startStreamSeeding]);
+  }, [files, projectId, schema, configuration, startStreamSeeding, serviceRoleKey]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 Bytes";
@@ -498,6 +494,53 @@ export function DataSeedingInterface({
 
   return (
     <div className={cn("space-y-6", className)}>
+      {/* Service Role Key Input */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            Supabase Service Role Key
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Required to upload files to your project storage and seed data. This key is used only in your current session and is never stored.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="service-role-key">Service Role Key</Label>
+            <div className="flex gap-2">
+              <Input
+                id="service-role-key"
+                type={showKey ? "text" : "password"}
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                value={serviceRoleKey}
+                onChange={(e) => setServiceRoleKey(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setShowKey((v) => !v)}
+                aria-label={showKey ? "Hide key" : "Show key"}
+              >
+                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Find it in your{" "}
+            <a
+              href={`https://supabase.com/dashboard/project/${projectId}/settings/api`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              Supabase project → Settings → API → Project API keys
+            </a>
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Header */}
       <Card>
         <CardHeader>
@@ -517,9 +560,11 @@ export function DataSeedingInterface({
                 <Button
                   onClick={startSeeding}
                   disabled={
+                    !serviceRoleKey ||
                     isUploading ||
                     seedingJobs.some((j) => j.status === "processing")
                   }
+                  title={!serviceRoleKey ? "Enter your service role key above to seed data" : undefined}
                   className="gap-2"
                 >
                   <Zap className="h-4 w-4" />
