@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { generateDynamicSeederFunction } from "@/lib/edge-functions/dynamic-seeder-template";
+import { calculateBatchSize, estimateRowBytesFromSchema } from "@/lib/seeding/batch-calculator";
 import type { DatabaseSchema } from "@/types/schema.types";
 
 interface CreateFunctionRequest {
@@ -212,11 +213,18 @@ function generateAdvancedSeedingLogic(schema: DatabaseSchema, tableAnalysis: Ret
   
   const relationships = schema.relationships;
 
+  // Compute the most conservative batch size across all tables so the deployed
+  // edge function uses a payload-bounded chunk size rather than a static number.
+  const tableBatchSizes = schema.tables.map((table) =>
+    calculateBatchSize(estimateRowBytesFromSchema(table.columns))
+  );
+  const chunkSize = tableBatchSizes.length > 0 ? Math.min(...tableBatchSizes) : 1000;
+
   return {
     constants: `
 // Advanced AI-Schema-Aware Configuration
 const SCHEMA_CONFIG = {
-  batchSize: 50,
+  batchSize: ${chunkSize},
   maxRetries: 3,
   timeoutMs: 1200,
   tables: ${JSON.stringify(schema.tables)},
