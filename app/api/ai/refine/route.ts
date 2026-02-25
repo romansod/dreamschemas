@@ -48,6 +48,7 @@ function getClientIP(request: NextRequest): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const startTime = Date.now();
     // Rate limiting
     const clientIP = getClientIP(request);
     if (!checkRefinementRateLimit(clientIP)) {
@@ -155,7 +156,7 @@ export async function POST(request: NextRequest) {
         timestamp: new Date().toISOString(),
       },
       metadata: {
-        processingTime: Date.now(),
+        processingTime: Date.now() - startTime,
         aiProvider: 'gemini-2.5-flash-preview-04-17',
         feedbackLength: userFeedback.length,
       }
@@ -210,6 +211,7 @@ export async function POST(request: NextRequest) {
 // Batch refinement endpoint for multiple changes
 export async function PUT(request: NextRequest) {
   try {
+    const startTime = Date.now();
     const clientIP = getClientIP(request);
     if (!checkRefinementRateLimit(clientIP)) {
       return NextResponse.json(
@@ -302,7 +304,7 @@ export async function PUT(request: NextRequest) {
         failed: failureCount,
       },
       metadata: {
-        processingTime: Date.now(),
+        processingTime: Date.now() - startTime,
         aiProvider: 'google-gemini-2.0-flash',
       }
     });
