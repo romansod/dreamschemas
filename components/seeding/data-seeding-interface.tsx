@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSeedingStream } from "@/hooks/use-seeding-stream";
+import { calculateBatchSize, estimateRowBytesFromSchema } from "@/lib/seeding/batch-calculator";
 import { StorageManager } from "@/lib/seeding/storage-manager";
 import { ProjectData, ProjectStorage } from "@/lib/storage/project-storage";
 import { getSupabaseOAuth } from "@/lib/supabase/oauth";
@@ -41,7 +42,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface DataSeedingInterfaceProps {
   schema: DatabaseSchema;
@@ -136,6 +137,29 @@ export function DataSeedingInterface({
     return schema.tables.find(t => t.name.toLowerCase() === baseName)?.name;
   }, [schema.tables]);
 
+  // Per-table batch size estimates derived from column type definitions.
+  const batchSizeByTable = useMemo(() => {
+    return schema.tables.map((table) => {
+      const estimatedRowBytes = estimateRowBytesFromSchema(table.columns);
+      const rows = calculateBatchSize(estimatedRowBytes);
+      const approxKb = Math.round((rows * estimatedRowBytes) / 1024);
+      return { tableName: table.name, rows, approxKb };
+    });
+  }, [schema.tables]);
+
+  // Return the computed batch size for a specific table, or the smallest (most
+  // conservative) batch size across all tables when no target table is specified.
+  const getBatchSizeForTable = useCallback(
+    (tableName: string | undefined): number => {
+      if (!tableName) {
+        const sizes = batchSizeByTable.map((t) => t.rows);
+        return sizes.length > 0 ? Math.min(...sizes) : 1000;
+      }
+      return batchSizeByTable.find((t) => t.tableName === tableName)?.rows ?? 1000;
+    },
+    [batchSizeByTable]
+  );
+
   // Streaming seeding hook
   const {
     isProcessing: isStreamingSeeding,
@@ -188,7 +212,7 @@ export function DataSeedingInterface({
           schemaId: schema.id,
           schema: { ...schema, projectId },
           projectConfig: { projectId, serviceRoleKey },
-          targetTable,
+          ...(targetTable !== undefined ? { targetTable } : {}),
           status: "processing",
           totalRows: nextFile.metadata.totalRows || 0,
           processedRows: 0,
@@ -211,7 +235,7 @@ export function DataSeedingInterface({
             memoryUsage: { peak: 0, average: 0, current: 0 },
             processingTime: { total: 0, parsing: 0, validation: 0, insertion: 0 },
           },
-          configuration,
+          configuration: { ...configuration, batchSize: getBatchSizeForTable(targetTable) },
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -489,7 +513,7 @@ export function DataSeedingInterface({
         schemaId: schema.id,
         schema: { ...schema, projectId },
         projectConfig: { projectId, serviceRoleKey },
-        targetTable,
+        ...(targetTable !== undefined ? { targetTable } : {}),
         status: "processing",
         totalRows: firstFile.metadata.totalRows || 0,
         processedRows: 0,
@@ -512,7 +536,7 @@ export function DataSeedingInterface({
           memoryUsage: { peak: 0, average: 0, current: 0 },
           processingTime: { total: 0, parsing: 0, validation: 0, insertion: 0 },
         },
-        configuration,
+        configuration: { ...configuration, batchSize: getBatchSizeForTable(targetTable) },
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -523,7 +547,7 @@ export function DataSeedingInterface({
       setIsUploading(false);
       console.error("Seeding failed:", error);
     }
-  }, [files, projectId, schema, configuration, startStreamSeeding, serviceRoleKey, getTargetTable, userEmail]);
+  }, [files, projectId, schema, configuration, startStreamSeeding, serviceRoleKey, getTargetTable, getBatchSizeForTable, userEmail]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 Bytes";
@@ -888,22 +912,16 @@ export function DataSeedingInterface({
                   <div>
                     <label className="text-sm font-medium">Batch Size</label>
                     <p className="text-xs text-muted-foreground mb-2">
-                      Number of rows to process at once
+                      Auto-computed per table from column types
                     </p>
-                    <select
-                      value={configuration.batchSize}
-                      onChange={(e) =>
-                        setConfiguration((prev) => ({
-                          ...prev,
-                          batchSize: parseInt(e.target.value),
-                        }))
-                      }
-                      className="w-full p-2 border rounded"
-                    >
-                      <option value={500}>500 (Fast)</option>
-                      <option value={1000}>1,000 (Balanced)</option>
-                      <option value={2000}>2,000 (Memory Efficient)</option>
-                    </select>
+                    <div className="space-y-1 p-2 border rounded bg-muted/20">
+                      {batchSizeByTable.map(({ tableName, rows, approxKb }) => (
+                        <p key={tableName} className="text-xs font-mono">
+                          <span className="font-medium">{tableName}:</span>{" "}
+                          {rows.toLocaleString()} rows (~{approxKb} KB/batch)
+                        </p>
+                      ))}
+                    </div>
                   </div>
 
                   <div>

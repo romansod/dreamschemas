@@ -385,10 +385,16 @@ class DataSeeder {
    * Process data in batches
    */
   private async processDataBatches(
-    rows: Record<string, unknown>[], 
+    rows: Record<string, unknown>[],
     onProgress?: (progress: SeedingProgress) => void
   ): Promise<void> {
-    const batchSize = this.request.configuration.batchSize || 1000;
+    // Use client-supplied batch size (computed from schema column types).
+    // Fall back to default only if missing — static row counts are unreliable
+    // because row size varies widely depending on schema width and column types.
+    const batchSize =
+      this.request.configuration.batchSize > 0
+        ? this.request.configuration.batchSize
+        : 1000;
     const totalBatches = Math.ceil(rows.length / batchSize);
     
     this.progress.totalBatches = totalBatches;
