@@ -24,6 +24,7 @@ export const PROCESSING_CONFIG = {
   MAX_ERRORS_PER_JOB: 1000,
   PROGRESS_UPDATE_INTERVAL: 2000, // 2 seconds
   TIMEOUT_SECONDS: 3600, // 1 hour
+  TARGET_BATCH_BYTES: 512 * 1024, // 512 KB target payload per batch sent to the edge function
 } as const;
 
 // Validation Rules
