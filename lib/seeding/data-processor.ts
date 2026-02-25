@@ -223,15 +223,49 @@ export class DataProcessor {
       return tableRows;
     }
 
-    // Group by table based on column mappings
-    const tablesByColumn: Record<string, string> = {};
+    // Build a map of sourceColumn -> set of targetTables.
+    // A single source column can legitimately map to multiple target tables
+    // (e.g. a shared "created_at" column), so we use a Set per key to avoid
+    // the last-write-wins problem of a plain Record<string, string>.
+    const tablesByColumn: Record<string, Set<string>> = {};
     this.configuration.dataTransformations.forEach(mapping => {
-      tablesByColumn[mapping.sourceColumn] = mapping.targetTable;
+      if (!tablesByColumn[mapping.sourceColumn]) {
+        tablesByColumn[mapping.sourceColumn] = new Set();
+      }
+      tablesByColumn[mapping.sourceColumn].add(mapping.targetTable);
     });
 
-    // For now, put all rows in the first table (simplification)
+    // Initialize empty arrays for each unique target table
+    const targetTables = new Set(
+      Object.values(tablesByColumn).flatMap(tables => [...tables])
+    );
+    targetTables.forEach(table => { tableRows[table] = []; });
+
     const primaryTable = this.schema.tables[0]?.name || "data";
-    tableRows[primaryTable] = rows;
+
+    // Distribute each row to the target table(s) based on which of its columns are mapped
+    for (const row of rows) {
+      const matchedTables = new Set<string>();
+      for (const col of Object.keys(row)) {
+        if (tablesByColumn[col]) {
+          for (const table of tablesByColumn[col]) {
+            matchedTables.add(table);
+          }
+        }
+      }
+
+      if (matchedTables.size === 0) {
+        // No matching column mappings — fall back to primary table
+        if (!tableRows[primaryTable]) {
+          tableRows[primaryTable] = [];
+        }
+        tableRows[primaryTable].push(row);
+      } else {
+        for (const table of matchedTables) {
+          tableRows[table].push(row);
+        }
+      }
+    }
 
     return tableRows;
   }

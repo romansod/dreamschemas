@@ -104,6 +104,10 @@ export function DataSeedingInterface({
     skipOnError: true,
     validateForeignKeys: true,
     handleDuplicates: "skip",
+    // TODO: dataTransformations is always empty until a column mapping UI is built.
+    // When implemented, this UI should let users map CSV columns to target tables/columns,
+    // supporting both 1-to-1 and 1-to-many (shared column) mappings.
+    // See: types/seeding.types.ts ColumnMapping, lib/seeding/data-processor.ts groupRowsByTable
     dataTransformations: [],
     customValidations: [],
     parallelProcessing: false,
