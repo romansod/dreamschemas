@@ -12,6 +12,7 @@ const TYPE_BYTE_ESTIMATES: Record<string, number> = {
   DECIMAL: 20,
   NUMERIC: 20,
   REAL: 12,
+  "DOUBLE PRECISION": 20,
   DATE: 12,
   TIME: 10,
   TIMESTAMPTZ: 30,
@@ -43,11 +44,11 @@ export function estimateRowBytesFromSchema(columns: Column[]): number {
  * Result is clamped between MIN_BATCH_SIZE and MAX_BATCH_SIZE.
  */
 export function calculateBatchSize(
-  avgRowBytes: number,
+  estimatedRowBytes: number,
   targetBatchBytes = PROCESSING_CONFIG.TARGET_BATCH_BYTES
 ): number {
-  if (avgRowBytes <= 0) return PROCESSING_CONFIG.DEFAULT_BATCH_SIZE;
-  const computed = Math.floor(targetBatchBytes / avgRowBytes);
+  if (estimatedRowBytes <= 0) return PROCESSING_CONFIG.DEFAULT_BATCH_SIZE;
+  const computed = Math.floor(targetBatchBytes / estimatedRowBytes);
   return Math.max(
     PROCESSING_CONFIG.MIN_BATCH_SIZE,
     Math.min(PROCESSING_CONFIG.MAX_BATCH_SIZE, computed)
