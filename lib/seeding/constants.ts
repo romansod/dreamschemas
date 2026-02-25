@@ -6,6 +6,9 @@
 export const STORAGE_CONFIG = {
   BUCKET_NAME: "csv-uploads",
   MAX_FILE_SIZE: 150 * 1024 * 1024, // 150MB
+  // Supabase Storage per-file size limit. 50 MB is the free tier default.
+  // TODO: make this an environment variable for projects with a custom bucket file size limit
+  SUPABASE_BUCKET_FILE_SIZE_LIMIT_BYTES: 50 * 1024 * 1024,
   ALLOWED_MIME_TYPES: ["text/csv", "application/csv", "text/plain"],
   CHUNK_SIZE: 5 * 1024 * 1024, // 5MB chunks
   RETENTION_DAYS: 7, // Keep files for 7 days

@@ -88,6 +88,22 @@ export class StorageManager {
    * Validate file before upload
    */
   validateFile(file: File): SeedingAPIResponse<boolean> {
+    // Check bucket per-file size limit before any other validation
+    if (file.size > STORAGE_CONFIG.SUPABASE_BUCKET_FILE_SIZE_LIMIT_BYTES) {
+      const fileMb = (file.size / 1024 / 1024).toFixed(1);
+      const limitMb = (STORAGE_CONFIG.SUPABASE_BUCKET_FILE_SIZE_LIMIT_BYTES / 1024 / 1024).toFixed(0);
+      return {
+        success: false,
+        error: {
+          code: "FILE_TOO_LARGE_FOR_BUCKET",
+          message:
+            `File is too large to upload as a single file (${fileMb} MB). ` +
+            `Maximum supported size is ${limitMb} MB. ` +
+            `Automatic file splitting will be supported in a future version.`,
+        },
+      };
+    }
+
     const errors: string[] = [];
 
     // Check file size
@@ -299,8 +315,10 @@ export class StorageManager {
   private async mergeChunks(fileUpload: FileUpload, originalFile: File): Promise<void> {
     const finalPath = `${fileUpload.storagePath}/${fileUpload.filename}`;
 
-    // For now, upload the original file directly as well
-    // In a production environment, you'd merge the chunks server-side
+    // TODO: For files larger than STORAGE_CONFIG.SUPABASE_BUCKET_FILE_SIZE_LIMIT_BYTES,
+    // this re-upload of the full file will fail. Future implementation should split the
+    // source file into parts and reassemble server-side via an edge function, or use a
+    // storage provider that supports server-side chunk concatenation.
     const { error } = await this.supabase.storage
       .from(this.config.bucketName)
       .upload(finalPath, originalFile, {
