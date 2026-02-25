@@ -216,14 +216,14 @@ export class SchemaValidator {
   public validateRelationship(relationship: Relationship): SchemaValidationError[] {
     const errors: SchemaValidationError[] = [];
 
-    const sourceTable = this.schema.tables.find(t => t.name === relationship.sourceTable);
-    const targetTable = this.schema.tables.find(t => t.name === relationship.targetTable);
+    const sourceTable = this.schema.tables.find(t => t.id === relationship.sourceTable);
+    const targetTable = this.schema.tables.find(t => t.id === relationship.targetTable);
 
     if (!sourceTable) {
       errors.push({
         id: `rel-source-table-${relationship.id}`,
         type: 'error',
-        message: `Source table "${relationship.sourceTable}" not found`,
+        message: `Source table (id: "${relationship.sourceTable}") not found in schema`,
         code: 'MISSING_SOURCE_TABLE'
       });
     }
@@ -232,7 +232,7 @@ export class SchemaValidator {
       errors.push({
         id: `rel-target-table-${relationship.id}`,
         type: 'error',
-        message: `Target table "${relationship.targetTable}" not found`,
+        message: `Target table (id: "${relationship.targetTable}") not found in schema`,
         code: 'MISSING_TARGET_TABLE'
       });
     }
@@ -243,7 +243,7 @@ export class SchemaValidator {
         errors.push({
           id: `rel-source-column-${relationship.id}`,
           type: 'error',
-          table: relationship.sourceTable,
+          table: sourceTable.name,
           message: `Source column "${relationship.sourceColumn}" not found`,
           code: 'MISSING_SOURCE_COLUMN'
         });
@@ -256,21 +256,21 @@ export class SchemaValidator {
         errors.push({
           id: `rel-target-column-${relationship.id}`,
           type: 'error',
-          table: relationship.targetTable,
+          table: targetTable.name,
           message: `Target column "${relationship.targetColumn}" not found`,
           code: 'MISSING_TARGET_COLUMN'
         });
       } else {
         // Check if target column has appropriate constraints
-        const hasUniqueOrPK = targetColumn.constraints.some(c => 
+        const hasUniqueOrPK = targetColumn.constraints.some(c =>
           c.type === 'PRIMARY KEY' || c.type === 'UNIQUE'
         );
-        
+
         if (relationship.type === 'one-to-one' && !hasUniqueOrPK) {
           errors.push({
             id: `rel-one-to-one-${relationship.id}`,
             type: 'error',
-            table: relationship.targetTable,
+            table: targetTable.name,
             column: relationship.targetColumn,
             message: 'One-to-one relationships require target column to be unique or primary key',
             suggestion: 'Add UNIQUE constraint to target column',
@@ -359,26 +359,26 @@ export class SchemaValidator {
     const visited = new Set<string>();
     const recursionStack = new Set<string>();
 
-    const hasCycle = (tableName: string): boolean => {
-      if (recursionStack.has(tableName)) return true;
-      if (visited.has(tableName)) return false;
+    const hasCycle = (tableId: string): boolean => {
+      if (recursionStack.has(tableId)) return true;
+      if (visited.has(tableId)) return false;
 
-      visited.add(tableName);
-      recursionStack.add(tableName);
+      visited.add(tableId);
+      recursionStack.add(tableId);
 
-      const outgoingRels = this.schema.relationships.filter(r => r.sourceTable === tableName);
+      const outgoingRels = this.schema.relationships.filter(r => r.sourceTable === tableId);
       for (const rel of outgoingRels) {
         if (hasCycle(rel.targetTable)) {
           return true;
         }
       }
 
-      recursionStack.delete(tableName);
+      recursionStack.delete(tableId);
       return false;
     };
 
     for (const table of this.schema.tables) {
-      if (hasCycle(table.name)) {
+      if (hasCycle(table.id)) {
         errors.push({
           id: `circular-dependency-${table.name}`,
           type: 'error',
@@ -430,8 +430,8 @@ export class SchemaValidator {
 
     // Check for orphaned foreign key relationships
     this.schema.relationships.forEach(rel => {
-      const sourceTable = this.schema.tables.find(t => t.name === rel.sourceTable);
-      const targetTable = this.schema.tables.find(t => t.name === rel.targetTable);
+      const sourceTable = this.schema.tables.find(t => t.id === rel.sourceTable);
+      const targetTable = this.schema.tables.find(t => t.id === rel.targetTable);
 
       if (sourceTable && targetTable) {
         const sourceColumn = sourceTable.columns.find(c => c.name === rel.sourceColumn);
