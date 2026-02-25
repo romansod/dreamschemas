@@ -133,6 +133,78 @@ describe('SchemaAnalyzer', () => {
     });
   });
 
+  describe('RLS policy field consistency', () => {
+    it('fixture RLS policies have no definition field', async () => {
+      const analyzer = new SchemaAnalyzer(createMockProvider());
+      const result = await analyzer.analyzeSchema([makeCSVResult()]);
+
+      for (const table of result.tables) {
+        for (const policy of table.rlsPolicies) {
+          expect(policy).not.toHaveProperty('definition');
+        }
+      }
+    });
+
+    it('fallback RLS policies have no definition field', async () => {
+      const analyzer = new SchemaAnalyzer(createMockProvider({ shouldFail: true }));
+      const result = await analyzer.analyzeSchema([makeCSVResult({ fileName: 'items.csv' })]);
+
+      for (const table of result.tables) {
+        for (const policy of table.rlsPolicies) {
+          expect(policy).not.toHaveProperty('definition');
+        }
+      }
+    });
+
+    it('fallback SELECT policy uses using, not with_check', async () => {
+      const analyzer = new SchemaAnalyzer(createMockProvider({ shouldFail: true }));
+      const result = await analyzer.analyzeSchema([makeCSVResult({ fileName: 'items.csv' })]);
+
+      for (const table of result.tables) {
+        const select = table.rlsPolicies.find(p => p.operation === 'SELECT');
+        expect(select).toBeDefined();
+        expect(select?.using).toBeTruthy();
+        expect(select).not.toHaveProperty('with_check');
+      }
+    });
+
+    it('fallback INSERT policy uses with_check, not using', async () => {
+      const analyzer = new SchemaAnalyzer(createMockProvider({ shouldFail: true }));
+      const result = await analyzer.analyzeSchema([makeCSVResult({ fileName: 'items.csv' })]);
+
+      for (const table of result.tables) {
+        const insert = table.rlsPolicies.find(p => p.operation === 'INSERT');
+        expect(insert).toBeDefined();
+        expect(insert?.with_check).toBeTruthy();
+        expect(insert).not.toHaveProperty('using');
+      }
+    });
+
+    it('fallback UPDATE policy uses both using and with_check', async () => {
+      const analyzer = new SchemaAnalyzer(createMockProvider({ shouldFail: true }));
+      const result = await analyzer.analyzeSchema([makeCSVResult({ fileName: 'items.csv' })]);
+
+      for (const table of result.tables) {
+        const update = table.rlsPolicies.find(p => p.operation === 'UPDATE');
+        expect(update).toBeDefined();
+        expect(update?.using).toBeTruthy();
+        expect(update?.with_check).toBeTruthy();
+      }
+    });
+
+    it('fallback DELETE policy uses using, not with_check', async () => {
+      const analyzer = new SchemaAnalyzer(createMockProvider({ shouldFail: true }));
+      const result = await analyzer.analyzeSchema([makeCSVResult({ fileName: 'items.csv' })]);
+
+      for (const table of result.tables) {
+        const del = table.rlsPolicies.find(p => p.operation === 'DELETE');
+        expect(del).toBeDefined();
+        expect(del?.using).toBeTruthy();
+        expect(del).not.toHaveProperty('with_check');
+      }
+    });
+  });
+
   describe('streamSchemaAnalysis', () => {
     it('yields string chunks', async () => {
       const analyzer = new SchemaAnalyzer(createMockProvider());

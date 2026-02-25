@@ -91,21 +91,18 @@
         {
           "name": "users_select_own",
           "operation": "SELECT",
-          "definition": "auth.uid() = id",
           "using": "auth.uid() = id",
           "reasoning": "Users can only read their own profile"
         },
         {
           "name": "users_insert_own",
           "operation": "INSERT",
-          "definition": "auth.uid() = id",
           "with_check": "auth.uid() = id",
           "reasoning": "Users can only insert their own profile"
         },
         {
           "name": "users_update_own",
           "operation": "UPDATE",
-          "definition": "auth.uid() = id",
           "using": "auth.uid() = id",
           "with_check": "auth.uid() = id",
           "reasoning": "Users can only update their own profile"
@@ -113,7 +110,6 @@
         {
           "name": "users_delete_own",
           "operation": "DELETE",
-          "definition": "auth.uid() = id",
           "using": "auth.uid() = id",
           "reasoning": "Users can only delete their own profile"
         }
@@ -210,21 +206,18 @@
         {
           "name": "categories_select_public",
           "operation": "SELECT",
-          "definition": "true",
           "using": "true",
           "reasoning": "Categories are public catalogue data readable by anyone"
         },
         {
           "name": "categories_insert_admin",
           "operation": "INSERT",
-          "definition": "auth.role() = 'admin'",
           "with_check": "auth.role() = 'admin'",
           "reasoning": "Only admins can create categories"
         },
         {
           "name": "categories_update_admin",
           "operation": "UPDATE",
-          "definition": "auth.role() = 'admin'",
           "using": "auth.role() = 'admin'",
           "with_check": "auth.role() = 'admin'",
           "reasoning": "Only admins can update categories"
@@ -232,7 +225,6 @@
         {
           "name": "categories_delete_admin",
           "operation": "DELETE",
-          "definition": "auth.role() = 'admin'",
           "using": "auth.role() = 'admin'",
           "reasoning": "Only admins can delete categories"
         }
@@ -369,21 +361,18 @@
         {
           "name": "products_select_public",
           "operation": "SELECT",
-          "definition": "true",
           "using": "true",
           "reasoning": "Published products are public catalogue data"
         },
         {
           "name": "products_insert_admin",
           "operation": "INSERT",
-          "definition": "auth.role() = 'admin'",
           "with_check": "auth.role() = 'admin'",
           "reasoning": "Only admins can create products"
         },
         {
           "name": "products_update_admin",
           "operation": "UPDATE",
-          "definition": "auth.role() = 'admin'",
           "using": "auth.role() = 'admin'",
           "with_check": "auth.role() = 'admin'",
           "reasoning": "Only admins can update products"
@@ -391,7 +380,6 @@
         {
           "name": "products_delete_admin",
           "operation": "DELETE",
-          "definition": "auth.role() = 'admin'",
           "using": "auth.role() = 'admin'",
           "reasoning": "Only admins can delete products"
         }
@@ -549,21 +537,18 @@
         {
           "name": "orders_select_own",
           "operation": "SELECT",
-          "definition": "auth.uid() = user_id",
           "using": "auth.uid() = user_id",
           "reasoning": "Users can only view their own orders"
         },
         {
           "name": "orders_insert_own",
           "operation": "INSERT",
-          "definition": "auth.uid() = user_id",
           "with_check": "auth.uid() = user_id",
           "reasoning": "Users can only place orders for themselves"
         },
         {
           "name": "orders_update_own",
           "operation": "UPDATE",
-          "definition": "auth.uid() = user_id",
           "using": "auth.uid() = user_id",
           "with_check": "auth.uid() = user_id",
           "reasoning": "Users can only update their own orders"
@@ -571,7 +556,6 @@
         {
           "name": "orders_delete_own",
           "operation": "DELETE",
-          "definition": "auth.uid() = user_id",
           "using": "auth.uid() = user_id",
           "reasoning": "Users can only cancel their own orders"
         }
@@ -678,21 +662,18 @@
         {
           "name": "order_items_select_own",
           "operation": "SELECT",
-          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "using": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "reasoning": "Users can only view items in their own orders"
         },
         {
           "name": "order_items_insert_own",
           "operation": "INSERT",
-          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "with_check": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "reasoning": "Users can only add items to their own orders"
         },
         {
           "name": "order_items_update_own",
           "operation": "UPDATE",
-          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "using": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "with_check": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "reasoning": "Users can only update items in their own orders"
@@ -700,7 +681,6 @@
         {
           "name": "order_items_delete_own",
           "operation": "DELETE",
-          "definition": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "using": "auth.uid() = (SELECT user_id FROM orders WHERE id = order_id)",
           "reasoning": "Users can only remove items from their own orders"
         }

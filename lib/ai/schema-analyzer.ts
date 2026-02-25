@@ -116,7 +116,6 @@ const SchemaAnalysisSchema = z.object({
     rlsPolicies: z.array(z.object({
       name: z.string(),
       operation: z.enum(['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
-      definition: z.string(),
       using: z.string().optional(),
       with_check: z.string().optional(),
       reasoning: z.string(),
@@ -864,21 +863,18 @@ Format your response as JSON with the following structure:
           {
             name: `${tableName}_select_policy`,
             operation: 'SELECT' as const,
-            definition: 'auth.uid() = user_id',
             using: 'auth.uid() = user_id',
             reasoning: 'Users can read their own records',
           },
           {
             name: `${tableName}_insert_policy`,
             operation: 'INSERT' as const,
-            definition: 'auth.uid() = user_id',
             with_check: 'auth.uid() = user_id',
             reasoning: 'Users can only insert their own records',
           },
           {
             name: `${tableName}_update_policy`,
             operation: 'UPDATE' as const,
-            definition: 'auth.uid() = user_id',
             using: 'auth.uid() = user_id',
             with_check: 'auth.uid() = user_id',
             reasoning: 'Users can only update their own records',
@@ -886,7 +882,6 @@ Format your response as JSON with the following structure:
           {
             name: `${tableName}_delete_policy`,
             operation: 'DELETE' as const,
-            definition: 'auth.uid() = user_id',
             using: 'auth.uid() = user_id',
             reasoning: 'Users can only delete their own records',
           },
