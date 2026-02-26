@@ -36,6 +36,7 @@ import {
   Info,
   Loader2,
   Plus,
+  RotateCcw,
   TrendingUp,
   Upload,
   Users,
@@ -163,6 +164,7 @@ export function DataSeedingInterface({
   // Streaming seeding hook
   const {
     isProcessing: isStreamingSeeding,
+    isResuming: isStreamResuming,
     error: streamError,
     startSeeding: startStreamSeeding,
     stopSeeding: stopStreamSeeding,
@@ -1018,6 +1020,18 @@ export function DataSeedingInterface({
                 <CardContent>
                   {seedingProgress && (
                     <div className="space-y-4">
+                      {(isStreamResuming || seedingProgress.isResuming) && (
+                        <Alert className="border-yellow-500/50">
+                          <RotateCcw className="h-4 w-4 text-yellow-600" />
+                          <AlertDescription className="text-yellow-700">
+                            Resuming from row{" "}
+                            <strong>
+                              {seedingProgress.statistics?.processedRows?.toLocaleString() ?? 0}
+                            </strong>…
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
                       <div>
                         <div className="flex justify-between text-sm mb-2">
                           <span>Overall Progress</span>
