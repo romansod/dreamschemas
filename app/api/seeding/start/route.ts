@@ -354,10 +354,11 @@ async function handleStreamingResponse(edgeFunctionResponse: Response, projectId
 
       try { await writer.close(); } catch { /* writer already closed when client disconnects */ }
     } catch (error) {
-      // Suppress the expected ERR_INVALID_STATE error that fires when the client
-      // disconnects after receiving the completion event (normal behaviour)
+      // Suppress benign errors that fire when the client disconnects mid-stream
       const isClosedError = error instanceof Error &&
-        ((error as NodeJS.ErrnoException).code === 'ERR_INVALID_STATE' || error.message?.includes('WritableStream'));
+        ((error as NodeJS.ErrnoException).code === 'ERR_INVALID_STATE' ||
+         error.message?.includes('WritableStream') ||
+         error.message?.includes('transformAlgorithm'));
       if (!isClosedError) {
         console.error("Error handling streaming response:", error);
       }

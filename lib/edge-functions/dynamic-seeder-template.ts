@@ -53,6 +53,7 @@ interface SeedingProgress {
   errors: any[];
   warnings: any[];
   lastUpdate: Date;
+  isResuming?: boolean;
   needsContinuation?: boolean;
   continuationData?: {
     processedRows: number;
@@ -283,11 +284,32 @@ class DynamicCSVProcessor {
       console.log(\`📋 CSV Headers (\${headers.length}): \${headers.slice(0, 10).join(', ')}\${headers.length > 10 ? '...' : ''}\`);
 
       // Process chunk using dynamic table processing order
-      const processedRows = this.request.processedRows || 0;
+      // Check for an existing checkpoint (written after each committed chunk)
+      const checkpoint = await this.readCheckpoint();
+      let startIdx: number;
+
+      if (checkpoint?.status === 'completed') {
+        // This file was already fully seeded — skip immediately
+        this.progress.status = "completed";
+        this.progress.overallProgress = 100;
+        this.updateProgress(100, "completing", "Already completed — skipping");
+        onProgress(this.progress);
+        return this.progress;
+      } else if (checkpoint && checkpoint.processedRows > 0) {
+        // Resume from the last committed row
+        startIdx = checkpoint.processedRows;
+        this.progress.processedRows = startIdx;
+        this.progress.successfulRows = checkpoint.successfulRows || 0;
+        this.progress.isResuming = true;
+        this.updateProgress(30, "processing", \`Resuming from row \${startIdx}\`);
+        onProgress(this.progress);
+      } else {
+        startIdx = this.request.processedRows || 0;
+      }
+
       const chunkSize = DynamicCSVProcessor.CHUNK_SIZE;
-      const startIdx = processedRows;
       const endIdx = Math.min(startIdx + chunkSize, totalRows);
-      
+
       if (startIdx >= totalRows) {
         this.progress.status = "completed";
         this.progress.overallProgress = 100;
@@ -297,8 +319,8 @@ class DynamicCSVProcessor {
       }
       
       const chunkLines = dataLines.slice(startIdx, endIdx);
-      let newProcessedRows = processedRows;
-      
+      let newProcessedRows = startIdx;
+
       if (chunkLines.length > 0) {
         // Parse chunk data with better CSV parsing
         const chunkData = chunkLines.map((line, index) => {
@@ -328,9 +350,10 @@ class DynamicCSVProcessor {
         // Process chunk data with timeout protection using dynamic logic
         await this.processChunkDataWithDynamicLogic(chunkData);
 
-        newProcessedRows = processedRows + chunkLines.length;
+        newProcessedRows = startIdx + chunkLines.length;
         this.progress.processedRows = newProcessedRows;
         // successfulRows is incremented by processChunkDataWithDynamicLogic per insert — don't overwrite it here
+        await this.writeCheckpoint('processing', newProcessedRows, this.progress.successfulRows);
 
         console.log(\`✅ Completed chunk, total processed: \${newProcessedRows}/\${totalRows}\`);
       }
@@ -364,6 +387,7 @@ class DynamicCSVProcessor {
       this.progress.status = "completed";
       this.progress.overallProgress = 100;
       this.progress.needsContinuation = false;
+      await this.writeCheckpoint('completed', newProcessedRows, this.progress.successfulRows);
       this.updateProgress(100, "completing", "Data seeding completed successfully");
       onProgress(this.progress);
       
@@ -842,6 +866,43 @@ class DynamicCSVProcessor {
       }
     } catch (error) {
       console.log('❌ Database test exception:', error.message);
+    }
+  }
+
+  private checkpointPath(): string {
+    return \`\${this.request.fileId}/checkpoint.json\`;
+  }
+
+  private async readCheckpoint(): Promise<any | null> {
+    try {
+      const { data, error } = await this.supabaseClient.storage
+        .from('csv-uploads')
+        .download(this.checkpointPath());
+      if (error || !data) return null;
+      return JSON.parse(await data.text());
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeCheckpoint(status: string, processedRows: number, successfulRows: number): Promise<void> {
+    try {
+      const payload = {
+        fileId: this.request.fileId,
+        processedRows,
+        successfulRows,
+        status,
+        lastUpdated: new Date().toISOString(),
+      };
+      await this.supabaseClient.storage
+        .from('csv-uploads')
+        .upload(this.checkpointPath(), JSON.stringify(payload), {
+          upsert: true,
+          contentType: 'application/json',
+        });
+      console.log(\`✅ Checkpoint written: \${processedRows} rows, status: \${status}\`);
+    } catch (error) {
+      console.warn('⚠️ Failed to write checkpoint (non-fatal):', error.message);
     }
   }
 

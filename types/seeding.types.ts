@@ -190,6 +190,10 @@ export interface SeedingProgress {
   rowsPerSecond?: number;
   estimatedTimeRemaining?: number;
   statistics: Partial<SeedingStatistics>;
+  // Direct fields sent by the edge function (mirrors SeedingStatistics for convenience)
+  processedRows?: number;
+  successfulRows?: number;
+  failedRows?: number;
   errors: DataError[];
   warnings: DataWarning[];
   lastUpdate: Date;

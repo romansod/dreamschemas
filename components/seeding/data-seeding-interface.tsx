@@ -178,9 +178,9 @@ export function DataSeedingInterface({
       setSeedingJobs((prev) =>
         prev.map((job) => ({
           ...job,
-          processedRows: progress.statistics?.processedRows || 0,
-          successfulRows: progress.statistics?.successfulRows || 0,
-          failedRows: progress.statistics?.failedRows || 0,
+          processedRows: progress.processedRows ?? progress.statistics?.processedRows ?? 0,
+          successfulRows: progress.successfulRows ?? progress.statistics?.successfulRows ?? 0,
+          failedRows: progress.failedRows ?? progress.statistics?.failedRows ?? 0,
           status: progress.status,
           updatedAt: new Date(),
         }))
@@ -1026,7 +1026,7 @@ export function DataSeedingInterface({
                           <AlertDescription className="text-yellow-700">
                             Resuming from row{" "}
                             <strong>
-                              {seedingProgress.statistics?.processedRows?.toLocaleString() ?? 0}
+                              {(seedingProgress.processedRows ?? seedingProgress.statistics?.processedRows ?? 0).toLocaleString()}
                             </strong>…
                           </AlertDescription>
                         </Alert>
