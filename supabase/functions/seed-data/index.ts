@@ -23,6 +23,11 @@ interface SeedDataRequest {
     databaseUrl: string;
     apiKey: string;
   };
+  fileUpload?: {
+    storagePath: string;
+    filename: string;
+    size: number;
+  };
 }
 
 interface SeedingConfiguration {
@@ -187,6 +192,12 @@ class DataSeeder {
   // ─── Checkpoint helpers ───────────────────────────────────────────────────
 
   private checkpointPath(): string {
+    const storagePath = this.request.fileUpload?.storagePath;
+    if (storagePath) {
+      // Co-locate checkpoint.json with the CSV file (same directory)
+      const dir = storagePath.substring(0, storagePath.lastIndexOf("/"));
+      return `${dir}/checkpoint.json`;
+    }
     return `${this.request.fileId}/checkpoint.json`;
   }
 
