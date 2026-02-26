@@ -795,7 +795,7 @@ Format your response as JSON with the following structure:
               } else if (colName.includes('email')) {
                 type = 'VARCHAR';
                 length = 255;
-              } else if (colName.includes('year') || colName.includes('count') || colName.includes('number')) {
+              } else if (/(^|_)(year|count|number)($|_)/.test(colName)) {
                 type = 'SMALLINT';
               } else if (colName.includes('latitude') || colName.includes('longitude')) {
                 type = 'DECIMAL';
