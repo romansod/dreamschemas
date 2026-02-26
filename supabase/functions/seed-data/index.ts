@@ -237,8 +237,19 @@ class DataSeeder {
     try {
       // Check for an existing checkpoint from a previous (possibly timed-out) invocation
       const checkpoint = await this.readCheckpoint();
-      // Only resume from incomplete checkpoints; ignore completed ones so re-runs start fresh
-      const startRow = checkpoint?.status !== "completed" ? (checkpoint?.processedRows ?? 0) : 0;
+
+      // If this file was already fully seeded, skip it immediately so the client
+      // can advance to the next file in the queue without re-processing any rows.
+      if (checkpoint?.status === "completed") {
+        this.progress.processedRows = checkpoint.processedRows;
+        this.progress.successfulRows = checkpoint.successfulRows;
+        this.progress.status = "completed";
+        this.updateProgress(100, "completing", "Already completed — skipping");
+        onProgress?.(this.progress);
+        return this.progress;
+      }
+
+      const startRow = checkpoint?.processedRows ?? 0;
       const isResuming = startRow > 0;
 
       if (isResuming) {
