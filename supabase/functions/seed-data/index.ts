@@ -131,6 +131,18 @@ interface SeedingProgress {
   errors: DataError[];
   warnings: DataError[];
   lastUpdate: Date;
+  isResuming?: boolean;
+}
+
+interface Checkpoint {
+  jobId: string;
+  fileId: string;
+  processedRows: number;
+  successfulRows: number;
+  failedRows: number;
+  batchSize: number;
+  status: "processing" | "completed";
+  lastUpdated: string;
 }
 
 class DataSeeder {
@@ -172,6 +184,45 @@ class DataSeeder {
     };
   }
 
+  // ─── Checkpoint helpers ───────────────────────────────────────────────────
+
+  private checkpointPath(): string {
+    return `${this.request.fileId}/checkpoint.json`;
+  }
+
+  private async readCheckpoint(): Promise<Checkpoint | null> {
+    const { data, error } = await this.storageClient.storage
+      .from("csv-uploads")
+      .download(this.checkpointPath());
+    if (error || !data) return null;
+    try {
+      return JSON.parse(await data.text()) as Checkpoint;
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeCheckpoint(status: "processing" | "completed"): Promise<void> {
+    const payload: Checkpoint = {
+      jobId: this.request.jobId,
+      fileId: this.request.fileId,
+      processedRows: this.progress.processedRows,
+      successfulRows: this.progress.successfulRows,
+      failedRows: this.progress.failedRows,
+      batchSize: this.request.configuration.batchSize,
+      status,
+      lastUpdated: new Date().toISOString(),
+    };
+    await this.storageClient.storage
+      .from("csv-uploads")
+      .upload(this.checkpointPath(), JSON.stringify(payload), {
+        upsert: true,
+        contentType: "application/json",
+      });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   /**
    * Main seeding function
    */
@@ -184,29 +235,44 @@ class DataSeeder {
    */
   async seedDataWithProgress(onProgress?: (progress: SeedingProgress) => void): Promise<SeedingProgress> {
     try {
+      // Check for an existing checkpoint from a previous (possibly timed-out) invocation
+      const checkpoint = await this.readCheckpoint();
+      // Only resume from incomplete checkpoints; ignore completed ones so re-runs start fresh
+      const startRow = checkpoint?.status !== "completed" ? (checkpoint?.processedRows ?? 0) : 0;
+      const isResuming = startRow > 0;
+
+      if (isResuming) {
+        this.progress.processedRows = startRow;
+        this.progress.successfulRows = checkpoint!.successfulRows ?? startRow;
+        this.progress.isResuming = true;
+        this.updateProgress(30, "processing", `Resuming from row ${startRow}`);
+        onProgress?.(this.progress);
+      }
+
       // Step 1: Download CSV file from storage
-      this.updateProgress(5, "parsing", "Downloading CSV file");
+      this.updateProgress(isResuming ? 31 : 5, "parsing", "Downloading CSV file");
       onProgress?.(this.progress);
       const csvData = await this.downloadCSVFile();
 
       // Step 2: Parse CSV data
-      this.updateProgress(15, "parsing", "Parsing CSV data");
+      this.updateProgress(isResuming ? 32 : 15, "parsing", "Parsing CSV data");
       onProgress?.(this.progress);
       const rows = await this.parseCSVData(csvData);
 
       // Step 3: Validate data
-      this.updateProgress(25, "validating", "Validating data");
+      this.updateProgress(isResuming ? 33 : 25, "validating", "Validating data");
       onProgress?.(this.progress);
       const validatedData = await this.validateData(rows);
 
-      // Step 4: Process data in batches
-      this.updateProgress(30, "processing", "Processing data");
+      // Step 4: Process data in batches (skip already-committed rows via startRow)
+      this.updateProgress(isResuming ? 34 : 30, "processing", "Processing data");
       onProgress?.(this.progress);
-      await this.processDataBatches(validatedData, onProgress);
+      await this.processDataBatches(validatedData, onProgress, startRow);
 
       // Step 5: Complete
       this.updateProgress(100, "completing", "Seeding completed");
       this.progress.status = "completed";
+      await this.writeCheckpoint("completed");
       onProgress?.(this.progress);
 
       return this.progress;
@@ -219,7 +285,7 @@ class DataSeeder {
         severity: "critical",
         canAutoFix: false,
       });
-      
+
       onProgress?.(this.progress);
       throw error;
     }
@@ -386,7 +452,8 @@ class DataSeeder {
    */
   private async processDataBatches(
     rows: Record<string, unknown>[],
-    onProgress?: (progress: SeedingProgress) => void
+    onProgress?: (progress: SeedingProgress) => void,
+    startRow: number = 0,
   ): Promise<void> {
     // Use client-supplied batch size (computed from schema column types).
     // Fall back to default only if missing — static row counts are unreliable
@@ -395,14 +462,17 @@ class DataSeeder {
       this.request.configuration.batchSize > 0
         ? this.request.configuration.batchSize
         : 1000;
-    const totalBatches = Math.ceil(rows.length / batchSize);
-    
+
+    // Skip rows already committed in a previous invocation
+    const rowsToProcess = rows.slice(startRow);
+    const totalBatches = Math.ceil(rowsToProcess.length / batchSize);
+
     this.progress.totalBatches = totalBatches;
 
-    for (let i = 0; i < rows.length; i += batchSize) {
-      const batch = rows.slice(i, i + batchSize);
+    for (let i = 0; i < rowsToProcess.length; i += batchSize) {
+      const batch = rowsToProcess.slice(i, i + batchSize);
       const batchNumber = Math.floor(i / batchSize) + 1;
-      
+
       this.progress.currentBatch = batchNumber;
       this.updateProgress(
         30 + (batchNumber / totalBatches) * 65, // 30-95% for processing
@@ -416,6 +486,8 @@ class DataSeeder {
       try {
         await this.processBatch(batch, batchNumber);
         this.progress.successfulRows += batch.length;
+        this.progress.processedRows = startRow + i + batch.length;
+        await this.writeCheckpoint("processing");
       } catch (error) {
         this.progress.failedRows += batch.length;
         this.addError({
@@ -431,9 +503,8 @@ class DataSeeder {
         }
       }
 
-      this.progress.processedRows = Math.min(i + batchSize, rows.length);
       this.updateRowsPerSecond();
-      
+
       // Send progress update after batch completion
       onProgress?.(this.progress);
     }

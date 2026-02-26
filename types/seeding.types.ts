@@ -193,6 +193,7 @@ export interface SeedingProgress {
   errors: DataError[];
   warnings: DataWarning[];
   lastUpdate: Date;
+  isResuming?: boolean;
   needsContinuation?: boolean;
   continuationData?: {
     processedRows: number;
