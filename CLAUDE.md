@@ -108,6 +108,22 @@ GOOGLE_GENERATIVE_AI_API_KEY=[Google AI Studio API Key for Gemini]
 7. **Migration Export**: SQL preview with multiple format options and TypeScript generation
 8. **Supabase Deploy**: Direct project creation and migration application
 
+## Phase 10: Data Seeding — Edge Function Architecture
+
+There are two files that look like Supabase edge functions. **Do not confuse them:**
+
+| File | Role |
+|------|------|
+| `supabase/functions/seed-data/index.ts` | Static scaffold — **NOT deployed by the app** |
+| `lib/edge-functions/dynamic-seeder-template.ts` | **This is what matters** — factory that generates the live function |
+
+The template factory (`dynamic-seeder-template.ts`) exports `generateDynamicSeederFunction()` which returns
+schema-specific Deno code as a string. `app/api/seeding/create-function/route.ts` deploys that generated code
+to the user's Supabase project via the Management API.
+
+**Rule:** If fixing seeding bugs or changing seeding behavior → edit `lib/edge-functions/dynamic-seeder-template.ts`.
+Each directory has its own `CLAUDE.md` with full details.
+
 ## Development Notes
 
 - Uses `@supabase/ssr` package for cookie-based authentication
